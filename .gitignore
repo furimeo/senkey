@@ -1,0 +1,28 @@
+# Build directories
+build/
+build-*/
+bin/
+
+# Compiled binaries & libraries
+senkey
+senkey-gui
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# Generated resources
+SenkeyResources.c
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary / testing
+scratch/
+*.log
