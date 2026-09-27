@@ -108,7 +108,7 @@ static void test_backspace_handling() {
     cfg.input_method = InputMethod::TELEX;
     engine.apply_config(cfg);
 
-    // Type "vieetj" -> "việt"
+    // Gõ chuỗi "vieetj" -> kết quả mong đợi là "việt"
     std::string current;
     for (char c : std::string("vieetj")) {
         int backs = 0;
@@ -124,7 +124,7 @@ static void test_backspace_handling() {
     }
     assert(current == "việt");
 
-    // Press backspace
+    // Nhấn phím xóa lùi (Backspace)
     int backs = 0;
     std::string rep;
     if (engine.process_backspace(backs, rep)) {
@@ -135,7 +135,7 @@ static void test_backspace_handling() {
     } else {
         if (!current.empty()) current.pop_back();
     }
-    // After 1 backspace, engine restores state or removes character
+    // Sau 1 lần xóa lùi, bộ gõ phục hồi trạng thái ký tự trước đó
     assert(!current.empty());
     std::cout << "[PASS] Backspace handling test passed.\n";
 }

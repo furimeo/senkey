@@ -29,7 +29,7 @@ static void test_high_volume_pipeline() {
         "hajn", "phucs", "tieengs", "vietj", "thaan", "yeu"
     };
 
-    // Stress test: 500 loops of full sentences
+    // Kiểm thử áp lực: 500 vòng lặp gõ các câu hoàn chỉnh
     for (int round = 0; round < 500; ++round) {
         std::string buffer;
         for (const auto& w : sample_words) {
@@ -45,7 +45,7 @@ static void test_high_volume_pipeline() {
                     buffer += c;
                 }
             }
-            // Space commits word
+            // Phím cách kết thúc từ và đẩy ký tự ra luồng
             int backs = 0;
             std::string rep;
             if (engine.process_key(' ', backs, rep)) {
@@ -57,7 +57,7 @@ static void test_high_volume_pipeline() {
                 buffer += ' ';
             }
         }
-        // Reset buffer and engine state periodically
+        // Định kỳ đặt lại bộ đệm và trạng thái bộ gõ
         engine.reset();
     }
 
