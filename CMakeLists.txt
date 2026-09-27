@@ -1,5 +1,36 @@
 cmake_minimum_required(VERSION 3.16)
-project(SenKey VERSION 1.0.0 LANGUAGES CXX C)
+
+# Phiên bản: Tham số truyền vào (-DSENKEY_VERSION=...) > Git tag > Giá trị mặc định
+if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} describe --tags --match "v*" --always
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            OUTPUT_VARIABLE GIT_TAG_RAW
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        if(GIT_TAG_RAW MATCHES "^v?([0-9]+\\.[0-9]+.*)")
+            string(REGEX REPLACE "^v" "" SENKEY_VERSION "${GIT_TAG_RAW}")
+        endif()
+    endif()
+endif()
+
+if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
+    set(SENKEY_VERSION "0.1.3")
+endif()
+
+# Trích xuất định dạng số thuần cho CMake project(...)
+if(SENKEY_VERSION MATCHES "^([0-9]+(\\.[0-9]+)+)")
+    set(SENKEY_NUMERIC_VERSION "${CMAKE_MATCH_1}")
+else()
+    set(SENKEY_NUMERIC_VERSION "0.1.3")
+endif()
+
+project(SenKey VERSION ${SENKEY_NUMERIC_VERSION} LANGUAGES CXX C)
+
+add_compile_definitions(SENKEY_VERSION_STR="${SENKEY_VERSION}")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
