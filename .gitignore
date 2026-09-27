@@ -11,6 +11,8 @@ senkey-gui
 *.so
 *.dylib
 *.exe
+*.tar.gz
+*.zip
 
 # Generated resources
 SenkeyResources.c
