@@ -57,6 +57,8 @@ if(PKG_CONFIG_FOUND)
 endif()
 
 if(GTK3_FOUND)
+    pkg_check_modules(APPINDICATOR QUIET ayatana-appindicator3-0.1)
+
     # Compile GResource (icons embedded into binary)
     find_program(GLIB_COMPILE_RESOURCES glib-compile-resources REQUIRED)
 
@@ -85,6 +87,10 @@ if(GTK3_FOUND)
         Source/GUI/AdvancedSection.cpp
         Source/GUI/ButtonBar.cpp
         Source/GUI/MainWindow.cpp
+        Source/Tray/TrayIcons.cpp
+        Source/Tray/TrayBackend.cpp
+        Source/Tray/TrayMenu.cpp
+        Source/Tray/TrayManager.cpp
         Source/GUI/MainGui.cpp
     )
 
@@ -92,15 +98,24 @@ if(GTK3_FOUND)
     target_include_directories(senkey-gui PRIVATE
         Source
         Source/GUI
+        Source/Tray
         UniKeyCore
         ${GTK3_INCLUDE_DIRS}
+        ${APPINDICATOR_INCLUDE_DIRS}
     )
-    target_compile_options(senkey-gui PRIVATE ${GTK3_CFLAGS_OTHER})
+    target_compile_options(senkey-gui PRIVATE ${GTK3_CFLAGS_OTHER} ${APPINDICATOR_CFLAGS_OTHER})
     target_link_libraries(senkey-gui PRIVATE
         SenKeyCoreLib
         ${GTK3_LIBRARIES}
         pthread
     )
+
+    if(APPINDICATOR_FOUND)
+        target_compile_definitions(senkey-gui PRIVATE HAVE_AYATANA_APPINDICATOR=1)
+        target_link_libraries(senkey-gui PRIVATE ${APPINDICATOR_LIBRARIES})
+        message(STATUS "Ayatana AppIndicator found. Desktop Environment tray enabled.")
+    endif()
+
     message(STATUS "GTK3 found. Target 'senkey-gui' enabled.")
 else()
     message(WARNING "GTK3 not found. Target 'senkey-gui' will not be built.")
