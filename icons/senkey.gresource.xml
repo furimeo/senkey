@@ -18,5 +18,7 @@
     <file>application_side_expand.png</file>
     <file>application_side_contract.png</file>
     <file>text_replace.png</file>
+    <file>senkey-v.png</file>
+    <file>senkey-e.png</file>
   </gresource>
 </gresources>
