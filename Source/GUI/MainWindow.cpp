@@ -47,7 +47,7 @@ void MainWindow::on_expand() {
     button_bar.update_expand_label(advanced_section.is_revealed());
 
     if (!advanced_section.is_revealed()) {
-        // Wait for 180ms revealer animation, then shrink window
+        // Chờ 180ms để hiệu ứng cuộn hoàn tất, sau đó co cửa sổ lại
         g_timeout_add(220, [](gpointer data) -> gboolean {
             static_cast<MainWindow*>(data)->resize_to_fit();
             return G_SOURCE_REMOVE;

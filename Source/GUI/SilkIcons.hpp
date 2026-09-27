@@ -7,15 +7,15 @@
 
 namespace senkey {
 
-// Load a silk icon from the embedded GResource bundle.
-// Resource path: /senkey/icons/<name>
-// Returns a new GdkPixbuf (caller owns it), or nullptr on failure.
+// Nạp silk icon từ gói GResource nhúng sẵn trong binary.
+// Đường dẫn tài nguyên: /senkey/icons/<tên_tệp>
+// Trả về GdkPixbuf mới (bên gọi sở hữu đối tượng), hoặc nullptr nếu thất bại.
 GdkPixbuf* silk_icon(const char* name);
 
-// Convenience: make an icon image widget directly.
+// Tiện ích: tạo widget GtkImage trực tiếp từ icon.
 GtkWidget* silk_image(const char* name);
 
-// Convenience: make a horizontal box with an icon + a text label.
+// Tiện ích: tạo hộp ngang chứa icon và nhãn văn bản.
 GtkWidget* icon_label_box(const char* icon_name, const char* label_text, int spacing = 5);
 
 } // namespace senkey

@@ -25,7 +25,7 @@ void AboutDialog::show() {
     gtk_box_set_spacing(GTK_BOX(content), 8);
     gtk_container_set_border_width(GTK_CONTAINER(content), 12);
 
-    // App icon + name
+    // Biểu tượng ứng dụng và tiêu đề
     GtkWidget* title_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     GdkPixbuf* kb_pb = silk_icon("keyboard.png");
     if (kb_pb) {
@@ -36,7 +36,7 @@ void AboutDialog::show() {
     }
     GtkWidget* name_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     GtkWidget* lbl_name = gtk_label_new(nullptr);
-    gtk_label_set_markup(GTK_LABEL(lbl_name), "<b><big>SenKey 1.0.0</big></b>");
+    gtk_label_set_markup(GTK_LABEL(lbl_name), "<b><big>SenKey</big></b>");
     gtk_widget_set_halign(lbl_name, GTK_ALIGN_START);
     GtkWidget* lbl_desc = gtk_label_new("Bộ gõ tiếng Việt độc lập cho Linux");
     gtk_widget_set_halign(lbl_desc, GTK_ALIGN_START);
