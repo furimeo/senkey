@@ -16,7 +16,12 @@ MainWindow::MainWindow() {
     gtk_window_set_title(GTK_WINDOW(window), "SenKey - Bảng điều khiển");
     gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(window), 10);
-    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), nullptr);
+
+    // Xử lý sự kiện nhấn nút đóng 'X' để ẩn vào khay hệ thống thay vì hủy tiến trình
+    g_signal_connect(window, "delete-event", G_CALLBACK(+[](GtkWidget*, GdkEvent*, gpointer data) -> gboolean {
+        static_cast<MainWindow*>(data)->on_save_close();
+        return TRUE;
+    }), this);
 
     GdkPixbuf* kb = silk_icon("keyboard.png");
     if (kb) { gtk_window_set_icon(GTK_WINDOW(window), kb); g_object_unref(kb); }
@@ -63,21 +68,37 @@ void MainWindow::on_save_close() {
 
     std::string resp;
     IpcServer::send_command("RELOAD", resp);
-    gtk_widget_destroy(window);
+    gtk_widget_hide(window);
 }
 
 void MainWindow::on_quit_daemon() {
     std::string resp;
     IpcServer::send_command("QUIT", resp);
-    gtk_widget_destroy(window);
+    gtk_main_quit();
 }
 
 void MainWindow::on_about() {
     about_dialog.show();
 }
 
+void MainWindow::on_about_external() {
+    about_dialog.show();
+}
+
 void MainWindow::show_all() {
     gtk_widget_show_all(window);
+}
+
+void MainWindow::present() {
+    cfg_mgr.load();
+    basic_section.load(cfg_mgr.get());
+    advanced_section.load(cfg_mgr.get());
+    gtk_widget_show_all(window);
+    gtk_window_present(GTK_WINDOW(window));
+}
+
+void MainWindow::hide() {
+    gtk_widget_hide(window);
 }
 
 } // namespace senkey

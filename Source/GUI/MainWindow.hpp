@@ -32,6 +32,9 @@ public:
     ~MainWindow() = default;
 
     void show_all();
+    void present();
+    void hide();
+    void on_about_external();
     GtkWidget* get_widget() const { return window; }
 };
 
