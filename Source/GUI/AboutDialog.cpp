@@ -3,6 +3,7 @@
 
 #include "AboutDialog.hpp"
 #include "SilkIcons.hpp"
+#include "Version.hpp"
 #include <string>
 
 namespace senkey {
@@ -63,7 +64,7 @@ void AboutDialog::show() {
     add_row("user.png",        "Tác giả:",              "Lê Hùng Quang Minh");
     add_row("user_suit.png",   "Tác giả lõi gõ:",       "Phạm Kim Long");
     add_row("world.png",       "Lõi xử lý:",            "UniKeyCore");
-    add_row("cog.png",         "Phiên bản:",            "1.0.0");
+    add_row("cog.png",         "Phiên bản:",            senkey::VERSION);
     add_row("information.png", "Giấy phép SenKey:",     "GPL-2.0-or-later");
     add_row("information.png", "Giấy phép UniKeyCore:", "Tuân theo tác giả kèm NOTICE");
 

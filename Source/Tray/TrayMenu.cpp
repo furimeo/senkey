@@ -3,6 +3,7 @@
 
 #include "TrayMenu.hpp"
 #include "Ipc.hpp"
+#include "Version.hpp"
 
 namespace senkey {
 
@@ -13,7 +14,8 @@ TrayMenu::TrayMenu() {
 
 void TrayMenu::build_menu_items() {
     // Tiêu đề
-    GtkWidget* title = gtk_menu_item_new_with_label("SenKey 1.0.0");
+    std::string title_str = std::string("SenKey ") + senkey::VERSION;
+    GtkWidget* title = gtk_menu_item_new_with_label(title_str.c_str());
     gtk_widget_set_sensitive(title, FALSE);
     gtk_menu_shell_append(GTK_MENU_SHELL(menu), title);
 

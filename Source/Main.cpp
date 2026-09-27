@@ -7,8 +7,11 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <chrono>
+#include <thread>
 #include <unistd.h>
 
+#include "Version.hpp"
 #include "Types.hpp"
 #include "Logger.hpp"
 #include "Config.hpp"
@@ -56,7 +59,7 @@ int main(int argc, char* argv[]) {
             print_usage(argv[0]);
             return 0;
         } else if (arg == "-v" || arg == "--version") {
-            std::cout << "SenKey 1.0.0\n";
+            std::cout << "SenKey " << senkey::VERSION << "\n";
             return 0;
         } else if (arg == "-g" || arg == "--gui") {
             execlp("senkey-gui", "senkey-gui", nullptr);
@@ -127,14 +130,16 @@ int main(int argc, char* argv[]) {
 
     VirtualKeyboard emitter;
     if (!emitter.open_device("senkey-keyboard")) {
-        Logger::error("Failed to open /dev/uinput");
+        std::string err_str = std::strerror(errno);
+        Logger::error("Failed to open /dev/uinput: " + err_str + 
+                      ". Ensure your user is in the 'input' group (try running 'newgrp input' or re-login), "
+                      "or verify the uinput kernel module is loaded.");
         return 1;
     }
 
     KeyboardGrabber grabber;
     if (!grabber.init_and_grab_all()) {
-        Logger::error("Failed to grab physical keyboards");
-        return 1;
+        Logger::warn("No physical keyboards detected yet in /dev/input. SenKey is active and waiting for devices...");
     }
 
     EngineWrapper engine;
@@ -188,6 +193,16 @@ int main(int argc, char* argv[]) {
     Logger::info("SenKey ready (" + std::string(vietnamese_enabled ? "V" : "E") + ")");
 
     while (g_running) {
+        if (grabber.grabbed_count() == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            static int retry_ticks = 0;
+            if (++retry_ticks >= 8) {
+                retry_ticks = 0;
+                grabber.init_and_grab_all();
+            }
+            continue;
+        }
+
         int count = grabber.wait_events(events, 50);
         if (count <= 0) continue;
 
