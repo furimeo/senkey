@@ -41,14 +41,25 @@ make asan
 
 ## Cài đặt vào hệ thống
 
-Chạy tệp cài đặt tự động với quyền quản trị:
+**Cài đặt tự động trực tiếp từ GitHub Release mới nhất:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/furimeo/senkey/main/install.sh | sudo bash
+```
+
+**Hoặc cài đặt từ bản dựng cục bộ sau khi biên dịch:**
 ```bash
 sudo ./install.sh
+```
+
+**Cập nhật lên phiên bản mới nhất:**
+```bash
+sudo ./install.sh update
 ```
 
 Quá trình cài đặt sẽ thiết lập:
 - Tệp thực thi tại `/usr/local/bin/senkey` và `/usr/local/bin/senkey-gui`
 - Lối tắt ứng dụng tại `/usr/share/applications/senkey.desktop`
+- Biểu tượng ứng dụng tại `/usr/share/icons/hicolor/48x48/apps/`
 - Quy tắc cấp quyền uinput tại `/etc/udev/rules.d/99-uinput.rules`
 - Dịch vụ người dùng systemd tại `~/.config/systemd/user/senkey.service`
 
@@ -121,14 +132,19 @@ Tệp định nghĩa từ gõ tắt: `~/.config/senkey/macro.txt` (định dạn
 │   ├── Main.cpp                # Điểm khởi chạy của tiến trình daemon
 │   ├── MouseWatcher.hpp        # Lắng nghe sự kiện chuột để đặt lại đệm
 │   ├── Types.hpp               # Định nghĩa kiểu dữ liệu và cấu trúc chung
-│   └── GUI/                    # Giao diện đồ họa bảng điều khiển GTK3
-│       ├── AboutDialog.hpp / .cpp      # Hộp thoại thông tin tác giả và bản quyền
-│       ├── AdvancedSection.hpp / .cpp  # Khung tùy chọn cài đặt mở rộng
-│       ├── BasicSection.hpp / .cpp     # Lưới chọn bảng mã và kiểu gõ cơ bản
-│       ├── ButtonBar.hpp / .cpp        # Thanh nút bấm tác vụ
-│       ├── MainWindow.hpp / .cpp       # Cửa sổ chính bảng điều khiển
-│       ├── SilkIcons.hpp / .cpp        # Bộ nạp biểu tượng nhúng từ GResource
-│       └── MainGui.cpp                 # Điểm khởi chạy ứng dụng đồ họa
+│   ├── GUI/                    # Giao diện đồ họa bảng điều khiển GTK3
+│   │   ├── AboutDialog.hpp / .cpp      # Hộp thoại thông tin tác giả và bản quyền
+│   │   ├── AdvancedSection.hpp / .cpp  # Khung tùy chọn cài đặt mở rộng
+│   │   ├── BasicSection.hpp / .cpp     # Lưới chọn bảng mã và kiểu gõ cơ bản
+│   │   ├── ButtonBar.hpp / .cpp        # Thanh nút bấm tác vụ
+│   │   ├── MainWindow.hpp / .cpp       # Cửa sổ chính bảng điều khiển
+│   │   ├── SilkIcons.hpp / .cpp        # Bộ nạp biểu tượng nhúng từ GResource
+│   │   └── MainGui.cpp                 # Điểm khởi chạy ứng dụng đồ họa
+│   └── Tray/                   # Khay hệ thống (System Tray) và tích hợp Desktop Environment
+│       ├── TrayIcons.hpp / .cpp        # Quản lý và trích xuất biểu tượng khay
+│       ├── TrayBackend.hpp / .cpp      # Kết nối Ayatana AppIndicator và GtkStatusIcon
+│       ├── TrayMenu.hpp / .cpp         # Menu ngữ cảnh khay hệ thống
+│       └── TrayManager.hpp / .cpp      # Điều phối và thăm dò trạng thái bộ gõ
 ├── Tests/                      # Bộ kiểm thử tự động
 │   ├── CMakeLists.txt          # Cấu hình kiểm thử CTest
 │   ├── EngineTest.cpp          # Kiểm thử giải thuật gõ Telex, VNI
