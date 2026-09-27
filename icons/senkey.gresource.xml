@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/senkey/icons">
+    <file>keyboard.png</file>
+    <file>keyboard_add.png</file>
+    <file>world.png</file>
+    <file>wrench.png</file>
+    <file>tick.png</file>
+    <file>cross.png</file>
+    <file>information.png</file>
+    <file>cog.png</file>
+    <file>accept.png</file>
+    <file>cancel.png</file>
+    <file>help.png</file>
+    <file>user_suit.png</file>
+    <file>user.png</file>
+    <file>script.png</file>
+    <file>application_side_expand.png</file>
+    <file>application_side_contract.png</file>
+    <file>text_replace.png</file>
+  </gresource>
+</gresources>
