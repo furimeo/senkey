@@ -74,12 +74,18 @@ EOF
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger 2>/dev/null || true
 
+# Áp dụng quyền chuẩn bảo mật 0660 root:input cho node /dev/uinput hiện tại
+if [ -e /dev/uinput ]; then
+    chown root:input /dev/uinput 2>/dev/null || true
+    chmod 0660 /dev/uinput 2>/dev/null || true
+fi
+
 # Thêm người dùng vào nhóm input để có quyền phát phím
 if id -nG "$CURRENT_USER" | grep -qw "input"; then
     :
 else
     usermod -aG input "$CURRENT_USER"
-    echo "--> Đã thêm $CURRENT_USER vào nhóm input (có thể cần đăng nhập lại để nhận nhóm mới)."
+    echo "--> Đã thêm $CURRENT_USER vào nhóm input (có thể cần đăng nhập lại hoặc chạy 'newgrp input' để nhận nhóm mới)."
 fi
 
 # Cài đặt tệp thực thi vào /usr/local/bin
@@ -121,24 +127,50 @@ StartupNotify=false
 X-GNOME-Autostart-enabled=true
 EOF
 
-# Cấu hình dịch vụ systemd user service
-SERVICE_DIR="$USER_HOME/.config/systemd/user"
-mkdir -p "$SERVICE_DIR"
-cat << 'EOF' > "$SERVICE_DIR/senkey.service"
+# Cấu hình dịch vụ systemd cấp hệ thống (system service)
+cat << 'EOF' > /etc/systemd/system/senkey.service
 [Unit]
 Description=SenKey Vietnamese Input Daemon
+Documentation=https://github.com/furimeo/senkey
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/senkey
+Restart=always
+RestartSec=2
+Group=input
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Cấu hình dịch vụ systemd cấp người dùng (user service)
+mkdir -p /usr/lib/systemd/user
+cat << 'EOF' > /usr/lib/systemd/user/senkey.service
+[Unit]
+Description=SenKey Vietnamese Input Daemon
+Documentation=https://github.com/furimeo/senkey
 After=graphical-session.target
 
 [Service]
-ExecStart=/usr/local/bin/senkey --daemon
-Restart=on-failure
+Type=simple
+ExecStart=/usr/local/bin/senkey
+Restart=always
 RestartSec=2
 
 [Install]
 WantedBy=default.target
 EOF
 
-chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/systemd" 2>/dev/null || true
+if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
+    SERVICE_DIR="$USER_HOME/.config/systemd/user"
+    mkdir -p "$SERVICE_DIR"
+    cp /usr/lib/systemd/user/senkey.service "$SERVICE_DIR/senkey.service"
+    chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/systemd" 2>/dev/null || true
+fi
+
+systemctl daemon-reload 2>/dev/null || true
 
 # Dọn dẹp thư mục tạm nếu có
 if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
@@ -148,7 +180,11 @@ fi
 echo "=========================================================="
 echo " SenKey đã được cài đặt thành công!"
 echo " - Tệp nhị phân: /usr/local/bin/senkey, /usr/local/bin/senkey-gui"
-echo " - Khởi động bộ gõ: senkey (hoặc senkey-gui)"
-echo " - Bật tự khởi động cùng phiên làm việc:"
-echo "     systemctl --user enable --now senkey.service"
+echo " - Quản lý dịch vụ chạy nền (chọn 1 trong 2 cách):"
+echo "   Cách 1 (Cấp hệ thống):"
+echo "     sudo systemctl enable --now senkey"
+echo "     sudo systemctl status senkey"
+echo "   Cách 2 (Cấp người dùng):"
+echo "     systemctl --user enable --now senkey"
+echo "     systemctl --user status senkey"
 echo "=========================================================="
