@@ -122,6 +122,13 @@ if command -v setfacl >/dev/null 2>&1; then
     echo "--> Đã cấp quyền thiết bị tức thì cho $CURRENT_USER (POSIX ACL)."
 fi
 
+# Dừng triệt để tất cả tiến trình SenKey cũ trong bộ nhớ
+echo "--> Dừng các tiến trình SenKey cũ đang chạy..."
+systemctl stop senkey.service 2>/dev/null || true
+pkill -9 -x senkey 2>/dev/null || true
+pkill -9 -x senkey-gui 2>/dev/null || true
+sleep 1
+
 # Cài đặt tệp thực thi vào /usr/local/bin
 echo "--> Cài đặt tệp nhị phân vào /usr/local/bin..."
 install -d /usr/local/bin
@@ -224,9 +231,10 @@ if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
 fi
 
 # Tự động kích hoạt và khởi chạy dịch vụ ngay lập tức
-echo "--> Đang tự động kích hoạt và khởi chạy dịch vụ SenKey..."
+echo "--> Đang tự động kích hoạt và khởi động lại dịch vụ SenKey..."
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable --now senkey.service 2>/dev/null || true
+systemctl restart senkey.service 2>/dev/null || true
 
 # Dọn dẹp thư mục tạm nếu có
 if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
