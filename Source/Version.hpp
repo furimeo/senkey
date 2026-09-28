@@ -4,7 +4,7 @@
 #pragma once
 
 #ifndef SENKEY_VERSION_STR
-#define SENKEY_VERSION_STR "0.1.9"
+#define SENKEY_VERSION_STR "0.2.0"
 #endif
 
 namespace senkey {

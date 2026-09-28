@@ -18,7 +18,7 @@ if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
 endif()
 
 if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
-    set(SENKEY_VERSION "0.1.9")
+    set(SENKEY_VERSION "0.2.0")
 endif()
 
 # Trích xuất định dạng số thuần cho CMake project(...)
