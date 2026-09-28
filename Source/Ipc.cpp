@@ -45,20 +45,8 @@ bool IpcServer::start(std::function<std::string(const std::string&)> handler) {
         return false;
     }
 
-    // Bảo mật Linux:
-    // - Daemon người dùng thông thường: Chỉ chủ sở hữu có quyền (0600).
-    // - Daemon hệ thống (root): Thuộc nhóm 'input' với quyền (0660), chỉ thành viên nhóm input mới gửi lệnh được.
-    if (getuid() == 0) {
-        struct group* gr = getgrnam("input");
-        if (gr) {
-            chown(socket_path.c_str(), 0, gr->gr_gid);
-            chmod(socket_path.c_str(), 0660);
-        } else {
-            chmod(socket_path.c_str(), 0600);
-        }
-    } else {
-        chmod(socket_path.c_str(), 0600);
-    }
+    // Socket IPC cho phép các tiến trình trong phiên người dùng (senkey-gui, CLI) kết nối gửi lệnh (STATUS, TOGGLE)
+    chmod(socket_path.c_str(), 0666);
 
     if (listen(server_fd, 8) < 0) {
         close(server_fd);

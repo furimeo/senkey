@@ -126,11 +126,6 @@ int main(int argc, char* argv[]) {
     if (!is_service_mode) {
         std::string status_resp;
         if (IpcServer::send_command("STATUS", status_resp)) {
-            // Dịch vụ nền đã chạy: hiển thị Bảng điều khiển GUI
-            if (std::getenv("DISPLAY") || std::getenv("WAYLAND_DISPLAY")) {
-                execlp("senkey-gui", "senkey-gui", nullptr);
-                execlp("./senkey-gui", "./senkey-gui", nullptr);
-            }
             std::cout << "SenKey is running in background (Mode: [" << status_resp << "]).\n";
             return 0;
         }
@@ -139,17 +134,6 @@ int main(int argc, char* argv[]) {
         if (daemon(0, 0) != 0) {
             Logger::error("Failed to run SenKey in background");
             return 1;
-        }
-
-        // Khởi động Bảng điều khiển và biểu tượng Khay hệ thống nếu có môi trường đồ họa
-        if (std::getenv("DISPLAY") || std::getenv("WAYLAND_DISPLAY")) {
-            pid_t gui_pid = fork();
-            if (gui_pid == 0) {
-                setsid();
-                execlp("senkey-gui", "senkey-gui", nullptr);
-                execlp("./senkey-gui", "./senkey-gui", nullptr);
-                _exit(0);
-            }
         }
     }
 
