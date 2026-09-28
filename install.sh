@@ -67,6 +67,24 @@ if [ "$ACTION" = "update" ]; then
     download_latest_release
 fi
 
+# Tự động cài đặt các thư viện hệ thống cần thiết nếu dùng Debian/Ubuntu (apt)
+if command -v apt-get >/dev/null 2>&1; then
+    MISSING_PKGS=""
+    if ! dpkg -s libayatana-appindicator3-1 >/dev/null 2>&1 && ! dpkg -s libappindicator3-1 >/dev/null 2>&1; then
+        MISSING_PKGS="$MISSING_PKGS libayatana-appindicator3-1"
+    fi
+    if ! dpkg -s libgtk-3-0 >/dev/null 2>&1; then
+        MISSING_PKGS="$MISSING_PKGS libgtk-3-0"
+    fi
+    if ! dpkg -s acl >/dev/null 2>&1; then
+        MISSING_PKGS="$MISSING_PKGS acl"
+    fi
+    if [ -n "$MISSING_PKGS" ]; then
+        echo "--> Đang cài đặt thư viện hệ thống bổ trợ ($MISSING_PKGS)..."
+        apt-get update -qq && apt-get install -y -qq $MISSING_PKGS 2>/dev/null || true
+    fi
+fi
+
 # Cấu hình nạp kernel module uinput
 echo "--> Thiết lập quyền thiết bị uinput..."
 modprobe uinput 2>/dev/null || true
