@@ -35,20 +35,21 @@ static void handle_signal(int sig) {
 static void print_usage(const char* prog) {
     std::cout << "Usage: " << prog << " [OPTIONS]\n\n"
               << "Options:\n"
-              << "  -d, --daemon       Run in background as daemon\n"
               << "  -g, --gui          Open graphical control panel\n"
-              << "  -t, --toggle       Toggle active mode (V/E) of running daemon\n"
-              << "  -s, --status       Print current mode (V or E) of running daemon\n"
-              << "  -q, --quit         Terminate running daemon\n"
+              << "  -t, --toggle       Toggle active mode (V/E) of running background service\n"
+              << "  -s, --status       Print current mode (V or E) of running background service\n"
+              << "  -q, --quit         Terminate running background service\n"
+              << "  -r, --reload       Reload configuration and macros\n"
               << "  -c, --config PATH  Specify custom config file path\n"
               << "  -m, --macro PATH   Specify custom macro file path\n"
               << "      --verbose      Enable verbose debug logging\n"
+              << "      --service      Run foreground service loop (managed by systemd)\n"
               << "  -v, --version      Show version information\n"
               << "  -h, --help         Show this help message\n";
 }
 
 int main(int argc, char* argv[]) {
-    bool run_daemon = false;
+    bool is_service_mode = false;
     bool verbose = false;
     std::string custom_config;
     std::string custom_macro;
@@ -72,7 +73,7 @@ int main(int argc, char* argv[]) {
                 std::cout << resp << "\n";
                 return 0;
             }
-            std::cerr << "senkey daemon is not running\n";
+            std::cerr << "SenKey background service is not running\n";
             return 1;
         } else if (arg == "-s" || arg == "--status") {
             std::string resp;
@@ -80,7 +81,7 @@ int main(int argc, char* argv[]) {
                 std::cout << resp << "\n";
                 return 0;
             }
-            std::cerr << "senkey daemon is not running\n";
+            std::cerr << "SenKey background service is not running\n";
             return 1;
         } else if (arg == "-q" || arg == "--quit") {
             std::string resp;
@@ -88,10 +89,18 @@ int main(int argc, char* argv[]) {
                 std::cout << resp << "\n";
                 return 0;
             }
-            std::cerr << "senkey daemon is not running\n";
+            std::cerr << "SenKey background service is not running\n";
             return 1;
-        } else if (arg == "-d" || arg == "--daemon") {
-            run_daemon = true;
+        } else if (arg == "-r" || arg == "--reload") {
+            std::string resp;
+            if (IpcServer::send_command("RELOAD", resp)) {
+                std::cout << resp << "\n";
+                return 0;
+            }
+            std::cerr << "SenKey background service is not running\n";
+            return 1;
+        } else if (arg == "--service") {
+            is_service_mode = true;
         } else if (arg == "--verbose") {
             verbose = true;
         } else if ((arg == "-c" || arg == "--config") && i + 1 < argc) {
@@ -107,16 +116,39 @@ int main(int argc, char* argv[]) {
 
     if (verbose) {
         Logger::set_level(LogLevel::DEBUG);
-    } else if (run_daemon) {
-        Logger::set_level(LogLevel::WARN);
     } else {
         Logger::set_level(LogLevel::INFO);
     }
 
-    if (run_daemon) {
+    // Mô hình tất định: SenKey luôn chạy nền.
+    // Nếu chạy không cờ (từ menu hoặc terminal) và không phải cờ --service của systemd:
+    if (!is_service_mode) {
+        std::string status_resp;
+        if (IpcServer::send_command("STATUS", status_resp)) {
+            // Dịch vụ nền đã chạy: hiển thị Bảng điều khiển GUI
+            if (std::getenv("DISPLAY") || std::getenv("WAYLAND_DISPLAY")) {
+                execlp("senkey-gui", "senkey-gui", nullptr);
+                execlp("./senkey-gui", "./senkey-gui", nullptr);
+            }
+            std::cout << "SenKey is running in background (Mode: [" << status_resp << "]).\n";
+            return 0;
+        }
+
+        // Tự động chuyển vào nền (daemonize) để giải phóng terminal
         if (daemon(0, 0) != 0) {
-            Logger::error("Failed to daemonize process");
+            Logger::error("Failed to run SenKey in background");
             return 1;
+        }
+
+        // Khởi động Bảng điều khiển và biểu tượng Khay hệ thống nếu có môi trường đồ họa
+        if (std::getenv("DISPLAY") || std::getenv("WAYLAND_DISPLAY")) {
+            pid_t gui_pid = fork();
+            if (gui_pid == 0) {
+                setsid();
+                execlp("senkey-gui", "senkey-gui", nullptr);
+                execlp("./senkey-gui", "./senkey-gui", nullptr);
+                _exit(0);
+            }
         }
     }
 
