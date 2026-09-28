@@ -325,7 +325,7 @@ public:
                             sync();
                             sleep_us(step_delay);
                         }
-                        tap_key(code, 2000);
+                        tap_key(code, 2500);
                         if (shift_needed) {
                             emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
                             sync();

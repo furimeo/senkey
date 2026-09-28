@@ -11,6 +11,7 @@
 #include <thread>
 #include <unordered_set>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "Version.hpp"
 #include "Types.hpp"
@@ -49,6 +50,25 @@ static void print_usage(const char* prog) {
               << "  -h, --help         Show this help message\n";
 }
 
+static bool launch_gui_detached() {
+    pid_t pid = fork();
+    if (pid < 0) return false;
+    if (pid == 0) {
+        setsid();
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            dup2(devnull, STDIN_FILENO);
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+        }
+        execlp("senkey-gui", "senkey-gui", nullptr);
+        execlp("./senkey-gui", "./senkey-gui", nullptr);
+        _exit(1);
+    }
+    return true;
+}
+
 int main(int argc, char* argv[]) {
     bool is_service_mode = false;
     bool verbose = false;
@@ -64,9 +84,11 @@ int main(int argc, char* argv[]) {
             std::cout << "SenKey " << senkey::VERSION << "\n";
             return 0;
         } else if (arg == "-g" || arg == "--gui") {
-            execlp("senkey-gui", "senkey-gui", nullptr);
-            execlp("./senkey-gui", "./senkey-gui", nullptr);
-            std::cerr << "senkey-gui executable not found\n";
+            if (launch_gui_detached()) {
+                std::cout << "SenKey GUI control panel launched.\n";
+                return 0;
+            }
+            std::cerr << "Failed to fork GUI process.\n";
             return 1;
         } else if (arg == "-t" || arg == "--toggle") {
             std::string resp;
@@ -126,14 +148,15 @@ int main(int argc, char* argv[]) {
     if (!is_service_mode) {
         std::string status_resp;
         if (IpcServer::send_command("STATUS", status_resp)) {
-            // Daemon nền đang chạy -> Mở/kích hoạt Bảng điều khiển giao diện (như UniKey)
-            execlp("senkey-gui", "senkey-gui", nullptr);
-            execlp("./senkey-gui", "./senkey-gui", nullptr);
+            // Daemon nền đang chạy -> Mở giao diện tách biệt ở background và thoát ngay lập tức để giải phóng terminal
             std::cout << "SenKey is running in background (Mode: [" << status_resp << "]).\n";
+            std::cout << "Launching SenKey control panel...\n";
+            launch_gui_detached();
             return 0;
         }
 
         // Tự động chuyển vào nền (daemonize) để giải phóng terminal
+        std::cout << "Starting SenKey background service...\n";
         if (daemon(0, 0) != 0) {
             Logger::error("Failed to run SenKey in background");
             return 1;
