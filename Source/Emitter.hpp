@@ -244,16 +244,16 @@ public:
         // 1. Release ALL physical modifiers and CapsLock to ensure clean environment
         release_all_modifiers(mod);
 
-        // 2. Trigger Ctrl+Shift+U with solid, detectable pulse
-        emit_event(EV_KEY, KEY_LEFTCTRL, 1);
+        // 2. Trigger Ctrl+Shift+U with solid, detectable pulse (Shift pressed first, released last to prevent Ctrl+U)
         emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+        emit_event(EV_KEY, KEY_LEFTCTRL, 1);
         sync();
         sleep_us(2500);
 
         tap_key(KEY_U, 2000);
 
-        emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
         emit_event(EV_KEY, KEY_LEFTCTRL, 0);
+        emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
         sync();
         sleep_us(2000);
 
@@ -268,8 +268,8 @@ public:
             }
         }
 
-        // 4. Commit via Enter (Official standard GTK/Chromium hex commit key).
-        tap_key(KEY_ENTER, step_delay);
+        // 4. Commit via Space (never triggers form or chat send, user preferred)
+        tap_key(KEY_SPACE, 1500);
 
         // 5. Post-commit settling barrier: give target application event loops (Chrome, GTK, Qt)
         // sufficient time (~20ms) to commit the unicode glyph and destroy preedit widget
@@ -302,8 +302,12 @@ public:
             for (int i = 0; i < backs; ++i) {
                 tap_key(KEY_BACKSPACE, 1000);
             }
-            // Small pause after backspaces so application text buffer completes deletions
-            sleep_us(3000);
+            // CRITICAL: Settling barrier after backspaces!
+            // Must allow the X11/Wayland compositor and application event loop a full frame (~18ms)
+            // to completely finish and commit all backspace deletions BEFORE pressing KEY_LEFTCTRL!
+            // If Ctrl is pressed too quickly (<5ms), compositors batch Backspace and Ctrl together,
+            // triggering Ctrl+Backspace which deletes the entire preceding word/letter (e.g. n in nên, m in một)!
+            sleep_us(18000);
         }
 
         if (!str.empty()) {
@@ -329,15 +333,15 @@ public:
                         }
                     }
                 } else {
-                    emit_event(EV_KEY, KEY_LEFTCTRL, 1);
                     emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+                    emit_event(EV_KEY, KEY_LEFTCTRL, 1);
                     sync();
                     sleep_us(2500);
 
                     tap_key(KEY_U, 2000);
 
-                    emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
                     emit_event(EV_KEY, KEY_LEFTCTRL, 0);
+                    emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
                     sync();
                     sleep_us(2000);
 
@@ -350,8 +354,8 @@ public:
                         }
                     }
 
-                    // Commit via Enter
-                    tap_key(KEY_ENTER, step_delay);
+                    // Commit via Space: never triggers form or chat send
+                    tap_key(KEY_SPACE, 1500);
 
                     // Allow target application to process commit and close preedit
                     // before injecting subsequent characters in this replacement string
