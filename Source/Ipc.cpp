@@ -15,6 +15,12 @@ namespace senkey {
 
 std::string IpcServer::get_default_socket_path() {
     uid_t uid = getuid();
+    if (uid != 0) {
+        const char* xdg = std::getenv("XDG_RUNTIME_DIR");
+        if (xdg && xdg[0] != '\0') {
+            return std::string(xdg) + "/senkey.sock";
+        }
+    }
     return "/tmp/senkey-" + std::to_string(uid) + ".sock";
 }
 
@@ -45,8 +51,32 @@ bool IpcServer::start(std::function<std::string(const std::string&)> handler) {
         return false;
     }
 
-    // Socket IPC cho phép các tiến trình trong phiên người dùng (senkey-gui, CLI) kết nối gửi lệnh (STATUS, TOGGLE)
-    chmod(socket_path.c_str(), 0666);
+    // Bảo mật chuẩn Linux (Principle of Least Privilege):
+    if (getuid() == 0) {
+        // Daemon hệ thống: chỉ sở hữu bởi root:input với quyền 0660 (rw-rw----, other: ---).
+        // Tuyệt đối không mở 0666 cho world.
+        struct group* gr = getgrnam("input");
+        if (gr) {
+            chown(socket_path.c_str(), 0, gr->gr_gid);
+            chmod(socket_path.c_str(), 0660);
+        } else {
+            chmod(socket_path.c_str(), 0600);
+        }
+
+        // Cấp quyền qua POSIX ACL đích danh cho tài khoản người dùng desktop (SENKEY_USER hoặc SUDO_USER)
+        // để chỉ duy nhất người dùng đó được phép kết nối, chặn đứng hoàn toàn mọi truy cập trái phép khác.
+        const char* target_user = std::getenv("SENKEY_USER");
+        if (!target_user || target_user[0] == '\0') {
+            target_user = std::getenv("SUDO_USER");
+        }
+        if (target_user && target_user[0] != '\0' && std::string(target_user) != "root") {
+            std::string cmd = "setfacl -m u:" + std::string(target_user) + ":rw " + socket_path + " 2>/dev/null";
+            system(cmd.c_str());
+        }
+    } else {
+        // Daemon phiên người dùng: Chỉ duy nhất chủ sở hữu được truy cập (0600: rw-------).
+        chmod(socket_path.c_str(), 0600);
+    }
 
     if (listen(server_fd, 8) < 0) {
         close(server_fd);
@@ -107,6 +137,10 @@ void IpcServer::thread_loop() {
 bool IpcServer::send_command(const std::string& cmd, std::string& out_response) {
     uid_t uid = getuid();
     std::vector<std::string> paths;
+    const char* xdg = std::getenv("XDG_RUNTIME_DIR");
+    if (xdg && xdg[0] != '\0') {
+        paths.push_back(std::string(xdg) + "/senkey.sock");
+    }
     paths.push_back("/tmp/senkey-" + std::to_string(uid) + ".sock");
     if (uid != 0) {
         paths.push_back("/tmp/senkey-0.sock");
