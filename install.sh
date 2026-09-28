@@ -11,8 +11,12 @@ CURRENT_USER="${SUDO_USER:-$USER}"
 USER_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
 
 if [ "$EUID" -ne 0 ]; then
-    echo "Lỗi: Vui lòng chạy lệnh cài đặt với quyền quản trị: sudo ./install.sh"
-    exit 1
+    echo "--> Đang yêu cầu quyền quản trị (sudo) để cấu hình uinput và cài đặt..."
+    if [ -t 0 ]; then
+        exec sudo bash "$0" "$@"
+    else
+        exec sudo -S bash "$0" "$@"
+    fi
 fi
 
 ACTION="${1:-install}"
@@ -69,7 +73,8 @@ modprobe uinput 2>/dev/null || true
 echo "uinput" > /etc/modules-load.d/uinput.conf
 
 cat << 'EOF' > /etc/udev/rules.d/99-uinput.rules
-KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
+KERNEL=="uinput", MODE="0660", GROUP="input", TAG+="uaccess", OPTIONS+="static_node=uinput"
+SUBSYSTEM=="input", KERNEL=="event*", TAG+="uaccess"
 EOF
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger 2>/dev/null || true
@@ -80,12 +85,23 @@ if [ -e /dev/uinput ]; then
     chmod 0660 /dev/uinput 2>/dev/null || true
 fi
 
-# Thêm người dùng vào nhóm input để có quyền phát phím
+# Thêm người dùng vào nhóm input
 if id -nG "$CURRENT_USER" | grep -qw "input"; then
     :
 else
     usermod -aG input "$CURRENT_USER"
-    echo "--> Đã thêm $CURRENT_USER vào nhóm input (có thể cần đăng nhập lại hoặc chạy 'newgrp input' để nhận nhóm mới)."
+    echo "--> Đã thêm người dùng $CURRENT_USER vào nhóm input."
+fi
+
+# Cấp quyền tức thì qua POSIX ACL để người dùng gõ được ngay lập tức mà không cần đăng nhập lại
+if command -v setfacl >/dev/null 2>&1; then
+    if [ -e /dev/uinput ]; then
+        setfacl -m u:"$CURRENT_USER":rw /dev/uinput 2>/dev/null || true
+    fi
+    if [ -d /dev/input ]; then
+        setfacl -m u:"$CURRENT_USER":rw /dev/input/event* 2>/dev/null || true
+    fi
+    echo "--> Đã cấp quyền thiết bị tức thì cho $CURRENT_USER (POSIX ACL)."
 fi
 
 # Cài đặt tệp thực thi vào /usr/local/bin
@@ -111,7 +127,7 @@ elif [ -f "$SRC_DIR/icons/senkey-v.png" ]; then
     install -m 644 "$SRC_DIR/icons/senkey-e.png" /usr/share/icons/hicolor/48x48/apps/senkey-e.png
 fi
 
-# Tạo lối tắt ứng dụng .desktop
+# Tạo lối tắt ứng dụng .desktop trong Application Menu
 install -d /usr/share/applications
 cat << 'EOF' > /usr/share/applications/senkey.desktop
 [Desktop Entry]
@@ -189,21 +205,27 @@ if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
     chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/systemd" "$USER_HOME/.config/autostart" 2>/dev/null || true
 fi
 
+# Tự động kích hoạt và khởi chạy dịch vụ ngay lập tức
+echo "--> Đang tự động kích hoạt và khởi chạy dịch vụ SenKey..."
 systemctl daemon-reload 2>/dev/null || true
+systemctl enable --now senkey.service 2>/dev/null || true
 
 # Dọn dẹp thư mục tạm nếu có
 if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
 fi
 
+if systemctl is-active --quiet senkey.service; then
+    STATUS_TEXT="Đang chạy (Active / Running)"
+else
+    STATUS_TEXT="Đã kích hoạt"
+fi
+
 echo "=========================================================="
-echo " SenKey đã được cài đặt thành công!"
+echo " SenKey đã được cài đặt và kích hoạt thành công!"
+echo " - Trạng thái dịch vụ nền: $STATUS_TEXT"
 echo " - Tệp nhị phân: /usr/local/bin/senkey, /usr/local/bin/senkey-gui"
-echo " - Quản lý dịch vụ chạy nền (chọn 1 trong 2 cách):"
-echo "   Cách 1 (Cấp hệ thống):"
-echo "     sudo systemctl enable --now senkey"
-echo "     sudo systemctl status senkey"
-echo "   Cách 2 (Cấp người dùng):"
-echo "     systemctl --user enable --now senkey"
-echo "     systemctl --user status senkey"
+echo " - Khay hệ thống (Tray): Tự động nạp cùng Desktop session"
+echo " - Bảng điều khiển: Gõ 'senkey' hoặc mở từ Application Menu"
+echo " - Kiểm tra trạng thái: senkey --status"
 echo "=========================================================="

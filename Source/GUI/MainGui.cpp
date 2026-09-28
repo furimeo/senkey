@@ -41,15 +41,14 @@ int main(int argc, char* argv[]) {
     // Đảm bảo dịch vụ nền SenKey luôn hoạt động
     std::string status_resp;
     if (!senkey::IpcServer::send_command("STATUS", status_resp)) {
-        if (system("systemctl --user start senkey.service 2>/dev/null") != 0 ||
-            !senkey::IpcServer::send_command("STATUS", status_resp)) {
-            pid_t pid = fork();
-            if (pid == 0) {
-                setsid();
-                execlp("senkey", "senkey", "--service", nullptr);
-                _exit(1);
-            }
+        pid_t pid = fork();
+        if (pid == 0) {
+            setsid();
+            execlp("senkey", "senkey", nullptr);
+            execlp("/usr/local/bin/senkey", "/usr/local/bin/senkey", nullptr);
+            _exit(1);
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
     }
 
     GtkApplication* app = gtk_application_new("com.furimeo.senkey", G_APPLICATION_DEFAULT_FLAGS);
