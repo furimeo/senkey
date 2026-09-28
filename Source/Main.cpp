@@ -9,6 +9,7 @@
 #include <cstring>
 #include <chrono>
 #include <thread>
+#include <unordered_set>
 #include <unistd.h>
 
 #include "Version.hpp"
@@ -221,6 +222,7 @@ int main(int argc, char* argv[]) {
     bool super_down = false;
     bool capslock_on = false;
 
+    std::unordered_set<int> consumed_keys;
     std::vector<input_event> events;
     events.reserve(32);
 
@@ -230,10 +232,12 @@ int main(int argc, char* argv[]) {
         if (device_changed.exchange(false)) {
             Logger::info("Hardware hotplug event. Updating grabbed keyboards...");
             grabber.init_and_grab_all();
+            consumed_keys.clear();
         }
 
         if (mouse_clicked.exchange(false)) {
             engine.reset();
+            consumed_keys.clear();
         }
 
         if (grabber.grabbed_count() == 0) {
@@ -285,16 +289,52 @@ int main(int argc, char* argv[]) {
                 if (trigger) {
                     vietnamese_enabled = !vietnamese_enabled;
                     engine.reset();
+                    consumed_keys.clear();
                     Logger::info(vietnamese_enabled ? "Mode: [V]" : "Mode: [E]");
                     continue;
                 }
             }
 
+            // Key release (val == 0)
             if (val == 0) {
+                if (consumed_keys.erase(code) > 0) {
+                    // Physical key was absorbed by the Vietnamese engine on press.
+                    // uinput never received a key-down for it, so do not pass key-up.
+                    continue;
+                }
                 emitter.passthrough(ev);
                 continue;
             }
 
+            // Autorepeat handling (val == 2)
+            if (val == 2) {
+                if (consumed_keys.count(code) > 0) {
+                    // This key was consumed by the Vietnamese engine (e.g. 'r' diacritic).
+                    // Drop autorepeat completely to prevent tone-reversal and infinite repeat spam.
+                    continue;
+                }
+                if (code == KEY_BACKSPACE && vietnamese_enabled && !ctrl && !alt && !super_down) {
+                    int backs = 0;
+                    std::string replacement;
+                    if (engine.process_backspace(backs, replacement)) {
+                        if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
+                        if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
+                    } else {
+                        emitter.passthrough(ev);
+                    }
+                    continue;
+                }
+                if (is_navigation_or_reset(code)) {
+                    engine.reset();
+                    consumed_keys.clear();
+                    emitter.passthrough(ev);
+                    continue;
+                }
+                emitter.passthrough(ev);
+                continue;
+            }
+
+            // From here on, val == 1 (Key Down)
             if (!vietnamese_enabled) {
                 emitter.passthrough(ev);
                 continue;
@@ -302,12 +342,14 @@ int main(int argc, char* argv[]) {
 
             if (ctrl || alt || super_down) {
                 engine.reset();
+                consumed_keys.clear();
                 emitter.passthrough(ev);
                 continue;
             }
 
             if (is_navigation_or_reset(code)) {
                 engine.reset();
+                consumed_keys.clear();
                 emitter.passthrough(ev);
                 continue;
             }
@@ -323,6 +365,7 @@ int main(int argc, char* argv[]) {
                 if (engine.process_backspace(backs, replacement)) {
                     if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
                     if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
+                    consumed_keys.insert(code);
                 } else {
                     emitter.passthrough(ev);
                 }
@@ -332,6 +375,7 @@ int main(int argc, char* argv[]) {
             char c = scancode_to_ascii(code, shift, capslock_on);
             if (c == 0) {
                 engine.reset();
+                consumed_keys.clear();
                 emitter.passthrough(ev);
                 continue;
             }
@@ -341,6 +385,7 @@ int main(int argc, char* argv[]) {
             if (engine.process_key(c, backs, replacement)) {
                 if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
                 if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
+                consumed_keys.insert(code);
             } else {
                 emitter.passthrough(ev);
             }
