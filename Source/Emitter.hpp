@@ -248,14 +248,14 @@ public:
         emit_event(EV_KEY, KEY_LEFTCTRL, 1);
         emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
         sync();
-        sleep_us(step_delay);
+        sleep_us(2500);
 
-        tap_key(KEY_U, step_delay);
+        tap_key(KEY_U, 2000);
 
         emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
         emit_event(EV_KEY, KEY_LEFTCTRL, 0);
         sync();
-        sleep_us(step_delay);
+        sleep_us(2000);
 
         // 3. Emit Hex Codepoint Digits (lowercase, solid pulse)
         char hex_buf[16];
@@ -268,12 +268,13 @@ public:
             }
         }
 
-        // 4. Commit via Enter
-        tap_key(KEY_ENTER, step_delay);
+        // 4. Commit via Space (Standard GTK/Chromium hex commit key).
+        // Unlike Enter, Space will NEVER trigger chat submission or form submission if dropped.
+        tap_key(KEY_SPACE, 1500);
 
         // 5. Post-commit settling barrier: give target application event loops (Chrome, GTK, Qt)
-        // a full display frame (~15ms) to commit the unicode glyph and destroy preedit widget
-        sleep_us(15000);
+        // sufficient time (~25ms) to commit the unicode glyph and destroy preedit widget
+        sleep_us(25000);
 
         // 6. Restore physical modifier states
         restore_all_modifiers(mod);
@@ -300,10 +301,10 @@ public:
 
         if (backs > 0) {
             for (int i = 0; i < backs; ++i) {
-                tap_key(KEY_BACKSPACE, step_delay);
+                tap_key(KEY_BACKSPACE, 800);
             }
             // Small pause after backspaces so application text buffer completes deletions
-            sleep_us(step_delay);
+            sleep_us(1500);
         }
 
         if (!str.empty()) {
@@ -321,7 +322,7 @@ public:
                             sync();
                             sleep_us(step_delay);
                         }
-                        tap_key(code, step_delay);
+                        tap_key(code, 2000);
                         if (shift_needed) {
                             emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
                             sync();
@@ -332,14 +333,14 @@ public:
                     emit_event(EV_KEY, KEY_LEFTCTRL, 1);
                     emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
                     sync();
-                    sleep_us(step_delay);
+                    sleep_us(2500);
 
-                    tap_key(KEY_U, step_delay);
+                    tap_key(KEY_U, 2000);
 
                     emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
                     emit_event(EV_KEY, KEY_LEFTCTRL, 0);
                     sync();
-                    sleep_us(step_delay);
+                    sleep_us(2000);
 
                     char hex_buf[16];
                     std::snprintf(hex_buf, sizeof(hex_buf), "%x", cp);
@@ -350,11 +351,12 @@ public:
                         }
                     }
 
-                    tap_key(KEY_ENTER, step_delay);
+                    // Commit via Space: never triggers form or chat send
+                    tap_key(KEY_SPACE, 1500);
 
                     // Allow target application to process commit and close preedit
                     // before injecting subsequent characters in this replacement string
-                    sleep_us(15000);
+                    sleep_us(25000);
                 }
                 sleep_us(step_delay);
             }
