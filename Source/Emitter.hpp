@@ -120,65 +120,22 @@ public:
         }
     }
 
-    bool emit_ascii_char(char c, int delay_us = 1200) {
+    bool emit_ascii_char(char c, int delay_us = 1200, bool physical_shift = false) {
         bool shift_needed = false;
-        int code = 0;
+        int code = ascii_to_scancode(c, shift_needed);
+        if (code <= 0) return false;
 
-        if (c >= 'a' && c <= 'z') {
-            code = KEY_A + (c - 'a');
-        } else if (c >= 'A' && c <= 'Z') {
-            code = KEY_A + (c - 'A');
-            shift_needed = true;
-        } else if (c >= '1' && c <= '9') {
-            code = KEY_1 + (c - '1');
-        } else if (c == '0') {
-            code = KEY_0;
-        } else if (c == ' ') {
-            code = KEY_SPACE;
-        } else {
-            switch (c) {
-                case '!': code = KEY_1; shift_needed = true; break;
-                case '@': code = KEY_2; shift_needed = true; break;
-                case '#': code = KEY_3; shift_needed = true; break;
-                case '$': code = KEY_4; shift_needed = true; break;
-                case '%': code = KEY_5; shift_needed = true; break;
-                case '^': code = KEY_6; shift_needed = true; break;
-                case '&': code = KEY_7; shift_needed = true; break;
-                case '*': code = KEY_8; shift_needed = true; break;
-                case '(': code = KEY_9; shift_needed = true; break;
-                case ')': code = KEY_0; shift_needed = true; break;
-                case '-': code = KEY_MINUS; break;
-                case '_': code = KEY_MINUS; shift_needed = true; break;
-                case '=': code = KEY_EQUAL; break;
-                case '+': code = KEY_EQUAL; shift_needed = true; break;
-                case '[': code = KEY_LEFTBRACE; break;
-                case '{': code = KEY_LEFTBRACE; shift_needed = true; break;
-                case ']': code = KEY_RIGHTBRACE; break;
-                case '}': code = KEY_RIGHTBRACE; shift_needed = true; break;
-                case ';': code = KEY_SEMICOLON; break;
-                case ':': code = KEY_SEMICOLON; shift_needed = true; break;
-                case '\'': code = KEY_APOSTROPHE; break;
-                case '"': code = KEY_APOSTROPHE; shift_needed = true; break;
-                case ',': code = KEY_COMMA; break;
-                case '<': code = KEY_COMMA; shift_needed = true; break;
-                case '.': code = KEY_DOT; break;
-                case '>': code = KEY_DOT; shift_needed = true; break;
-                case '/': code = KEY_SLASH; break;
-                case '?': code = KEY_SLASH; shift_needed = true; break;
-                default: return false;
-            }
-        }
-
-        if (shift_needed) {
-            emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+        bool toggle_shift = (physical_shift != shift_needed);
+        if (toggle_shift) {
+            emit_event(EV_KEY, KEY_LEFTSHIFT, shift_needed ? 1 : 0);
             sync();
             sleep_us(delay_us);
         }
 
         tap_key(code, delay_us);
 
-        if (shift_needed) {
-            emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
+        if (toggle_shift) {
+            emit_event(EV_KEY, KEY_LEFTSHIFT, physical_shift ? 1 : 0);
             sync();
             sleep_us(delay_us);
         }
@@ -186,9 +143,9 @@ public:
         return true;
     }
 
-    void emit_unicode(uint32_t codepoint, int delay_us = 1000) {
+    void emit_unicode(uint32_t codepoint, int delay_us = 1000, bool physical_shift = false, bool physical_ctrl = false) {
         if (codepoint < 128) {
-            emit_ascii_char(static_cast<char>(codepoint), delay_us);
+            emit_ascii_char(static_cast<char>(codepoint), delay_us, physical_shift);
             return;
         }
 
@@ -215,15 +172,23 @@ public:
         }
 
         tap_key(KEY_ENTER, delay_us);
+
+        // Restore physical modifier states if needed
+        if (physical_ctrl) emit_event(EV_KEY, KEY_LEFTCTRL, 1);
+        if (physical_shift) emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+        if (physical_ctrl || physical_shift) {
+            sync();
+            sleep_us(delay_us);
+        }
     }
 
-    void emit_utf8_string(const std::string& str, int delay_us = 1000) {
+    void emit_utf8_string(const std::string& str, int delay_us = 1000, bool physical_shift = false, bool physical_ctrl = false) {
         const char* ptr = str.data();
         const char* end = ptr + str.size();
         while (ptr < end) {
             uint32_t cp = utf8_next_codepoint(ptr, end);
             if (cp == 0) break;
-            emit_unicode(cp, delay_us);
+            emit_unicode(cp, delay_us, physical_shift, physical_ctrl);
         }
     }
 };

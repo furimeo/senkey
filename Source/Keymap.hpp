@@ -141,6 +141,112 @@ inline int hex_char_to_scancode(char c) {
     return 0;
 }
 
+inline int ascii_to_scancode(char c, bool& out_shift) {
+    out_shift = false;
+    switch (c) {
+        case 'a': return KEY_A;
+        case 'A': out_shift = true; return KEY_A;
+        case 'b': return KEY_B;
+        case 'B': out_shift = true; return KEY_B;
+        case 'c': return KEY_C;
+        case 'C': out_shift = true; return KEY_C;
+        case 'd': return KEY_D;
+        case 'D': out_shift = true; return KEY_D;
+        case 'e': return KEY_E;
+        case 'E': out_shift = true; return KEY_E;
+        case 'f': return KEY_F;
+        case 'F': out_shift = true; return KEY_F;
+        case 'g': return KEY_G;
+        case 'G': out_shift = true; return KEY_G;
+        case 'h': return KEY_H;
+        case 'H': out_shift = true; return KEY_H;
+        case 'i': return KEY_I;
+        case 'I': out_shift = true; return KEY_I;
+        case 'j': return KEY_J;
+        case 'J': out_shift = true; return KEY_J;
+        case 'k': return KEY_K;
+        case 'K': out_shift = true; return KEY_K;
+        case 'l': return KEY_L;
+        case 'L': out_shift = true; return KEY_L;
+        case 'm': return KEY_M;
+        case 'M': out_shift = true; return KEY_M;
+        case 'n': return KEY_N;
+        case 'N': out_shift = true; return KEY_N;
+        case 'o': return KEY_O;
+        case 'O': out_shift = true; return KEY_O;
+        case 'p': return KEY_P;
+        case 'P': out_shift = true; return KEY_P;
+        case 'q': return KEY_Q;
+        case 'Q': out_shift = true; return KEY_Q;
+        case 'r': return KEY_R;
+        case 'R': out_shift = true; return KEY_R;
+        case 's': return KEY_S;
+        case 'S': out_shift = true; return KEY_S;
+        case 't': return KEY_T;
+        case 'T': out_shift = true; return KEY_T;
+        case 'u': return KEY_U;
+        case 'U': out_shift = true; return KEY_U;
+        case 'v': return KEY_V;
+        case 'V': out_shift = true; return KEY_V;
+        case 'w': return KEY_W;
+        case 'W': out_shift = true; return KEY_W;
+        case 'x': return KEY_X;
+        case 'X': out_shift = true; return KEY_X;
+        case 'y': return KEY_Y;
+        case 'Y': out_shift = true; return KEY_Y;
+        case 'z': return KEY_Z;
+        case 'Z': out_shift = true; return KEY_Z;
+
+        case '1': return KEY_1;
+        case '!': out_shift = true; return KEY_1;
+        case '2': return KEY_2;
+        case '@': out_shift = true; return KEY_2;
+        case '3': return KEY_3;
+        case '#': out_shift = true; return KEY_3;
+        case '4': return KEY_4;
+        case '$': out_shift = true; return KEY_4;
+        case '5': return KEY_5;
+        case '%': out_shift = true; return KEY_5;
+        case '6': return KEY_6;
+        case '^': out_shift = true; return KEY_6;
+        case '7': return KEY_7;
+        case '&': out_shift = true; return KEY_7;
+        case '8': return KEY_8;
+        case '*': out_shift = true; return KEY_8;
+        case '9': return KEY_9;
+        case '(': out_shift = true; return KEY_9;
+        case '0': return KEY_0;
+        case ')': out_shift = true; return KEY_0;
+
+        case '-': return KEY_MINUS;
+        case '_': out_shift = true; return KEY_MINUS;
+        case '=': return KEY_EQUAL;
+        case '+': out_shift = true; return KEY_EQUAL;
+        case '[': return KEY_LEFTBRACE;
+        case '{': out_shift = true; return KEY_LEFTBRACE;
+        case ']': return KEY_RIGHTBRACE;
+        case '}': out_shift = true; return KEY_RIGHTBRACE;
+        case '\\': return KEY_BACKSLASH;
+        case '|': out_shift = true; return KEY_BACKSLASH;
+        case ';': return KEY_SEMICOLON;
+        case ':': out_shift = true; return KEY_SEMICOLON;
+        case '\'': return KEY_APOSTROPHE;
+        case '"': out_shift = true; return KEY_APOSTROPHE;
+        case '`': return KEY_GRAVE;
+        case '~': out_shift = true; return KEY_GRAVE;
+        case ',': return KEY_COMMA;
+        case '<': out_shift = true; return KEY_COMMA;
+        case '.': return KEY_DOT;
+        case '>': out_shift = true; return KEY_DOT;
+        case '/': return KEY_SLASH;
+        case '?': out_shift = true; return KEY_SLASH;
+        case ' ': return KEY_SPACE;
+        case '\t': return KEY_TAB;
+        case '\n': return KEY_ENTER;
+        default: return 0;
+    }
+}
+
 inline uint32_t utf8_next_codepoint(const char*& ptr, const char* end) {
     if (ptr >= end) return 0;
     uint8_t c = static_cast<uint8_t>(*ptr++);
