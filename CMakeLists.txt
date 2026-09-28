@@ -18,14 +18,14 @@ if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
 endif()
 
 if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
-    set(SENKEY_VERSION "0.1.3")
+    set(SENKEY_VERSION "0.1.4")
 endif()
 
 # Trích xuất định dạng số thuần cho CMake project(...)
 if(SENKEY_VERSION MATCHES "^([0-9]+(\\.[0-9]+)+)")
     set(SENKEY_NUMERIC_VERSION "${CMAKE_MATCH_1}")
 else()
-    set(SENKEY_NUMERIC_VERSION "0.1.3")
+    set(SENKEY_NUMERIC_VERSION "0.1.4")
 endif()
 
 project(SenKey VERSION ${SENKEY_NUMERIC_VERSION} LANGUAGES CXX C)
