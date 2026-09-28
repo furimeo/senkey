@@ -6,22 +6,19 @@
 #include <string>
 #include <functional>
 
-#if defined(HAVE_AYATANA_APPINDICATOR)
-#include <libayatana-appindicator/app-indicator.h>
-#endif
-
 namespace senkey {
 
 class TrayBackend {
 private:
-#if defined(HAVE_AYATANA_APPINDICATOR)
-    AppIndicator* indicator{nullptr};
-#endif
+    void* lib_handle{nullptr};
+    void* indicator{nullptr};
     GtkStatusIcon* status_icon{nullptr};
     std::string icon_dir;
 
     std::function<void()> on_activate_cb;
     std::function<void(guint, guint32)> on_popup_menu_cb;
+
+    bool init_app_indicator(GtkWidget* menu, GtkWidget* secondary_item);
 
 public:
     TrayBackend();
