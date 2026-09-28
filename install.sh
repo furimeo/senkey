@@ -19,6 +19,13 @@ if [ "$EUID" -ne 0 ]; then
     fi
 fi
 
+# Dừng sạch mọi tiến trình và dịch vụ cũ trước khi thực hiện cài đặt
+echo "--> Dọn dẹp các tiến trình SenKey cũ đang chạy..."
+systemctl stop senkey.service 2>/dev/null || true
+pkill -9 -x senkey 2>/dev/null || true
+pkill -9 -x senkey-gui 2>/dev/null || true
+rm -f /tmp/senkey*.sock
+
 ACTION="${1:-install}"
 
 download_latest_release() {
@@ -235,6 +242,23 @@ echo "--> Đang tự động kích hoạt và khởi động lại dịch vụ S
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable --now senkey.service 2>/dev/null || true
 systemctl restart senkey.service 2>/dev/null || true
+
+# Tự động khởi chạy giao diện khay hệ thống cho người dùng nếu đang trong phiên đồ họa
+if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
+    USER_UID=$(id -u "$CURRENT_USER" 2>/dev/null || true)
+    USER_RUNTIME="/run/user/$USER_UID"
+    TARGET_DISPLAY="${DISPLAY:-:0}"
+    TARGET_WAYLAND="${WAYLAND_DISPLAY}"
+    
+    if [ -d "$USER_RUNTIME" ] && { [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; }; then
+        echo "--> Đang tự động khởi chạy giao diện khay hệ thống cho $CURRENT_USER..."
+        sudo -u "$CURRENT_USER" \
+            DISPLAY="$TARGET_DISPLAY" \
+            WAYLAND_DISPLAY="$TARGET_WAYLAND" \
+            XDG_RUNTIME_DIR="$USER_RUNTIME" \
+            nohup /usr/local/bin/senkey-gui --tray >/dev/null 2>&1 &
+    fi
+fi
 
 # Dọn dẹp thư mục tạm nếu có
 if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
