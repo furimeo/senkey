@@ -244,13 +244,19 @@ if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
     TARGET_DISPLAY="${DISPLAY:-:0}"
     TARGET_WAYLAND="${WAYLAND_DISPLAY}"
     
-    if [ -d "$USER_RUNTIME" ] && { [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; }; then
+    if [ -d "$USER_RUNTIME" ]; then
         echo "--> Đang tự động khởi chạy giao diện khay hệ thống cho $CURRENT_USER..."
-        sudo -u "$CURRENT_USER" \
-            DISPLAY="$TARGET_DISPLAY" \
-            WAYLAND_DISPLAY="$TARGET_WAYLAND" \
-            XDG_RUNTIME_DIR="$USER_RUNTIME" \
-            nohup /usr/local/bin/senkey-gui --tray >/dev/null 2>&1 &
+        if command -v systemd-run >/dev/null 2>&1 && sudo -u "$CURRENT_USER" XDG_RUNTIME_DIR="$USER_RUNTIME" systemctl --user is-system-running >/dev/null 2>&1; then
+            sudo -u "$CURRENT_USER" XDG_RUNTIME_DIR="$USER_RUNTIME" \
+                systemd-run --user --unit=senkey-tray /usr/local/bin/senkey-gui --tray 2>/dev/null || true
+        else
+            sudo -u "$CURRENT_USER" \
+                DISPLAY="$TARGET_DISPLAY" \
+                WAYLAND_DISPLAY="$TARGET_WAYLAND" \
+                XDG_RUNTIME_DIR="$USER_RUNTIME" \
+                DBUS_SESSION_BUS_ADDRESS="unix:path=$USER_RUNTIME/bus" \
+                nohup /usr/local/bin/senkey-gui --tray >/dev/null 2>&1 &
+        fi
     fi
 fi
 

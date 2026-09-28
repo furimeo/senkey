@@ -79,15 +79,15 @@ bool ConfigManager::load() {
             config.macro_enabled = (val == "1" || val == "true" || val == "yes");
         } else if (key == "micro_delay_us") {
             int d = std::atoi(val.c_str());
-            if (d >= 400 && d <= 10000) {
+            if (d >= 800 && d <= 10000) {
                 config.micro_delay_us = d;
-            } else if (d > 0 && d < 400) {
-                config.micro_delay_us = 600;
+            } else {
+                config.micro_delay_us = 1200;
             }
         }
     }
-    if (config.micro_delay_us < 400) {
-        config.micro_delay_us = 600;
+    if (config.micro_delay_us < 800) {
+        config.micro_delay_us = 1200;
     }
     return true;
 }

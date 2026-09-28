@@ -126,6 +126,9 @@ int main(int argc, char* argv[]) {
     if (!is_service_mode) {
         std::string status_resp;
         if (IpcServer::send_command("STATUS", status_resp)) {
+            // Daemon nền đang chạy -> Mở/kích hoạt Bảng điều khiển giao diện (như UniKey)
+            execlp("senkey-gui", "senkey-gui", nullptr);
+            execlp("./senkey-gui", "./senkey-gui", nullptr);
             std::cout << "SenKey is running in background (Mode: [" << status_resp << "]).\n";
             return 0;
         }
@@ -328,8 +331,8 @@ int main(int argc, char* argv[]) {
             if (emission_pending_barrier) {
                 auto now = std::chrono::steady_clock::now();
                 auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_emission_time).count();
-                if (elapsed_ms < 5) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5 - elapsed_ms));
+                if (elapsed_ms < 12) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(12 - elapsed_ms));
                 }
                 emission_pending_barrier = false;
             }

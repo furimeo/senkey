@@ -233,54 +233,53 @@ public:
         return true;
     }
 
-    void emit_unicode(uint32_t codepoint, int delay_us = 600, const ModifierState& mod = {}) {
+    void emit_unicode(uint32_t codepoint, int delay_us = 1200, const ModifierState& mod = {}) {
         if (codepoint < 128) {
             emit_ascii_char(static_cast<char>(codepoint), delay_us, mod);
             return;
         }
 
+        int step_delay = std::max(delay_us, 1200);
+
         // 1. Release ALL physical modifiers and CapsLock to ensure clean environment
         release_all_modifiers(mod);
 
-        // 2. Trigger Ctrl+Shift+U
-        int trigger_delay = std::min(delay_us, 350);
+        // 2. Trigger Ctrl+Shift+U with solid, detectable pulse
         emit_event(EV_KEY, KEY_LEFTCTRL, 1);
         emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
         sync();
-        sleep_us(trigger_delay);
+        sleep_us(step_delay);
 
-        tap_key(KEY_U, trigger_delay);
+        tap_key(KEY_U, step_delay);
 
         emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
         emit_event(EV_KEY, KEY_LEFTCTRL, 0);
         sync();
-        sleep_us(trigger_delay);
+        sleep_us(step_delay);
 
-        // 3. Emit Hex Codepoint Digits (lowercase, fast)
+        // 3. Emit Hex Codepoint Digits (lowercase, solid pulse)
         char hex_buf[16];
         std::snprintf(hex_buf, sizeof(hex_buf), "%x", codepoint);
 
-        int hex_delay = std::min(delay_us, 250);
         for (int i = 0; hex_buf[i] != '\0'; ++i) {
             int sc = hex_char_to_scancode(hex_buf[i]);
             if (sc > 0) {
-                tap_key(sc, hex_delay);
+                tap_key(sc, step_delay);
             }
         }
 
         // 4. Commit via Enter
-        tap_key(KEY_ENTER, trigger_delay);
+        tap_key(KEY_ENTER, step_delay);
 
-        // 5. Post-commit settling barrier: give target application event loops (e.g. Chrome, GTK)
-        // enough time to process Enter, insert the unicode glyph, and close the preedit widget
-        int settle_us = std::max(delay_us * 6, 4500);
-        sleep_us(settle_us);
+        // 5. Post-commit settling barrier: give target application event loops (Chrome, GTK, Qt)
+        // a full display frame (~15ms) to commit the unicode glyph and destroy preedit widget
+        sleep_us(15000);
 
         // 6. Restore physical modifier states
         restore_all_modifiers(mod);
     }
 
-    void emit_utf8_string(const std::string& str, int delay_us = 600, const ModifierState& mod = {}) {
+    void emit_utf8_string(const std::string& str, int delay_us = 1200, const ModifierState& mod = {}) {
         const char* ptr = str.data();
         const char* end = ptr + str.size();
         while (ptr < end) {
@@ -291,17 +290,20 @@ public:
         }
     }
 
-    void emit_replacement(int backs, const std::string& str, int delay_us = 600, const ModifierState& mod = {}) {
+    void emit_replacement(int backs, const std::string& str, int delay_us = 1200, const ModifierState& mod = {}) {
         if (backs <= 0 && str.empty()) return;
+
+        int step_delay = std::max(delay_us, 1200);
 
         // Perform entire backspace + unicode replacement under released modifier protection
         release_all_modifiers(mod);
 
         if (backs > 0) {
-            int bs_delay = std::min(delay_us, 350);
             for (int i = 0; i < backs; ++i) {
-                tap_key(KEY_BACKSPACE, bs_delay);
+                tap_key(KEY_BACKSPACE, step_delay);
             }
+            // Small pause after backspaces so application text buffer completes deletions
+            sleep_us(step_delay);
         }
 
         if (!str.empty()) {
@@ -317,44 +319,44 @@ public:
                         if (shift_needed) {
                             emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
                             sync();
-                            sleep_us(delay_us);
+                            sleep_us(step_delay);
                         }
-                        tap_key(code, delay_us);
+                        tap_key(code, step_delay);
                         if (shift_needed) {
                             emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
                             sync();
-                            sleep_us(delay_us);
+                            sleep_us(step_delay);
                         }
                     }
                 } else {
-                    int trigger_delay = std::min(delay_us, 350);
                     emit_event(EV_KEY, KEY_LEFTCTRL, 1);
                     emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
                     sync();
-                    sleep_us(trigger_delay);
+                    sleep_us(step_delay);
 
-                    tap_key(KEY_U, trigger_delay);
+                    tap_key(KEY_U, step_delay);
 
                     emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
                     emit_event(EV_KEY, KEY_LEFTCTRL, 0);
                     sync();
-                    sleep_us(trigger_delay);
+                    sleep_us(step_delay);
 
                     char hex_buf[16];
                     std::snprintf(hex_buf, sizeof(hex_buf), "%x", cp);
-                    int hex_delay = std::min(delay_us, 250);
                     for (int i = 0; hex_buf[i] != '\0'; ++i) {
                         int sc = hex_char_to_scancode(hex_buf[i]);
                         if (sc > 0) {
-                            tap_key(sc, hex_delay);
+                            tap_key(sc, step_delay);
                         }
                     }
 
-                    tap_key(KEY_ENTER, trigger_delay);
-                    int settle_us = std::max(delay_us * 6, 4500);
-                    sleep_us(settle_us);
+                    tap_key(KEY_ENTER, step_delay);
+
+                    // Allow target application to process commit and close preedit
+                    // before injecting subsequent characters in this replacement string
+                    sleep_us(15000);
                 }
-                sleep_us(delay_us);
+                sleep_us(step_delay);
             }
         }
 
