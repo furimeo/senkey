@@ -39,7 +39,7 @@ struct SenKeyConfig {
     bool spell_check = true;
     bool auto_non_vn_restore = true;
     bool macro_enabled = true;
-    int micro_delay_us = 150;
+    int micro_delay_us = 600;
     std::string macro_file = "";
 };
 

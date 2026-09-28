@@ -36,9 +36,9 @@ public:
     VirtualKeyboard& operator=(const VirtualKeyboard&) = delete;
 
     bool open_device(const char* device_name = "senkey-keyboard") {
-        uinput_fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+        uinput_fd = open("/dev/uinput", O_WRONLY);
         if (uinput_fd < 0) {
-            uinput_fd = open("/dev/input/uinput", O_WRONLY | O_NONBLOCK);
+            uinput_fd = open("/dev/input/uinput", O_WRONLY);
         }
         if (uinput_fd < 0) {
             return false;
@@ -92,7 +92,10 @@ public:
         ev.type = type;
         ev.code = code;
         ev.value = value;
-        write(uinput_fd, &ev, sizeof(ev));
+        while (write(uinput_fd, &ev, sizeof(ev)) < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
     }
 
     void sync() {
@@ -101,10 +104,13 @@ public:
 
     void passthrough(const struct input_event& ev) {
         if (uinput_fd < 0) return;
-        write(uinput_fd, &ev, sizeof(ev));
+        while (write(uinput_fd, &ev, sizeof(ev)) < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
     }
 
-    void tap_key(int code, int delay_us = 1200) {
+    void tap_key(int code, int delay_us = 600) {
         if (uinput_fd < 0 || code <= 0) return;
         emit_event(EV_KEY, code, 1);
         sync();
@@ -114,13 +120,13 @@ public:
         sleep_us(delay_us);
     }
 
-    void emit_backspaces(int count, int delay_us = 1200) {
+    void emit_backspaces(int count, int delay_us = 600) {
         for (int i = 0; i < count; ++i) {
             tap_key(KEY_BACKSPACE, delay_us);
         }
     }
 
-    bool emit_ascii_char(char c, int delay_us = 1200, bool physical_shift = false) {
+    bool emit_ascii_char(char c, int delay_us = 600, bool physical_shift = false) {
         bool shift_needed = false;
         int code = ascii_to_scancode(c, shift_needed);
         if (code <= 0) return false;
@@ -143,7 +149,7 @@ public:
         return true;
     }
 
-    void emit_unicode(uint32_t codepoint, int delay_us = 1000, bool physical_shift = false, bool physical_ctrl = false) {
+    void emit_unicode(uint32_t codepoint, int delay_us = 600, bool physical_shift = false, bool physical_ctrl = false) {
         if (codepoint < 128) {
             emit_ascii_char(static_cast<char>(codepoint), delay_us, physical_shift);
             return;
@@ -172,6 +178,9 @@ public:
         }
 
         tap_key(KEY_ENTER, delay_us);
+        // Post-commit settling delay to give target GUI application event loops (e.g. Chrome, GTK)
+        // enough time to process Enter, insert the unicode glyph, and close the preedit widget
+        sleep_us(delay_us * 3);
 
         // Restore physical modifier states if needed
         if (physical_ctrl) emit_event(EV_KEY, KEY_LEFTCTRL, 1);
@@ -182,13 +191,14 @@ public:
         }
     }
 
-    void emit_utf8_string(const std::string& str, int delay_us = 1000, bool physical_shift = false, bool physical_ctrl = false) {
+    void emit_utf8_string(const std::string& str, int delay_us = 600, bool physical_shift = false, bool physical_ctrl = false) {
         const char* ptr = str.data();
         const char* end = ptr + str.size();
         while (ptr < end) {
             uint32_t cp = utf8_next_codepoint(ptr, end);
             if (cp == 0) break;
             emit_unicode(cp, delay_us, physical_shift, physical_ctrl);
+            sleep_us(delay_us);
         }
     }
 };
