@@ -197,18 +197,15 @@ int main(int argc, char* argv[]) {
         return "ERR";
     });
 
-    bool lshift_down = false;
-    bool rshift_down = false;
-    bool lctrl_down = false;
-    bool rctrl_down = false;
-    bool lalt_down = false;
-    bool ralt_down = false;
-    bool super_down = false;
-    bool capslock_on = false;
+    ModifierState mod;
+    mod.capslock = grabber.is_capslock_on();
 
     std::unordered_set<int> consumed_keys;
     std::vector<input_event> events;
     events.reserve(32);
+
+    auto last_emission_time = std::chrono::steady_clock::now();
+    bool emission_pending_barrier = false;
 
     Logger::info("SenKey ready (" + std::string(vietnamese_enabled ? "V" : "E") + ")");
 
@@ -216,12 +213,15 @@ int main(int argc, char* argv[]) {
         if (device_changed.exchange(false)) {
             Logger::info("Hardware hotplug event. Updating grabbed keyboards...");
             grabber.init_and_grab_all();
+            mod.capslock = grabber.is_capslock_on();
             consumed_keys.clear();
+            emission_pending_barrier = false;
         }
 
         if (mouse_clicked.exchange(false)) {
             engine.reset();
             consumed_keys.clear();
+            emission_pending_barrier = false;
         }
 
         if (grabber.grabbed_count() == 0) {
@@ -230,6 +230,7 @@ int main(int argc, char* argv[]) {
             if (++retry_ticks >= 8) {
                 retry_ticks = 0;
                 grabber.init_and_grab_all();
+                mod.capslock = grabber.is_capslock_on();
             }
             continue;
         }
@@ -246,18 +247,18 @@ int main(int argc, char* argv[]) {
             int code = ev.code;
             int val = ev.value;
 
-            if (code == KEY_LEFTSHIFT)  lshift_down = (val > 0);
-            if (code == KEY_RIGHTSHIFT) rshift_down = (val > 0);
-            if (code == KEY_LEFTCTRL)   lctrl_down = (val > 0);
-            if (code == KEY_RIGHTCTRL)  rctrl_down = (val > 0);
-            if (code == KEY_LEFTALT)    lalt_down = (val > 0);
-            if (code == KEY_RIGHTALT)   ralt_down = (val > 0);
-            if (code == KEY_LEFTMETA || code == KEY_RIGHTMETA) super_down = (val > 0);
-            if (code == KEY_CAPSLOCK && val == 1) capslock_on = !capslock_on;
+            if (code == KEY_LEFTSHIFT)  mod.lshift = (val > 0);
+            if (code == KEY_RIGHTSHIFT) mod.rshift = (val > 0);
+            if (code == KEY_LEFTCTRL)   mod.lctrl = (val > 0);
+            if (code == KEY_RIGHTCTRL)  mod.rctrl = (val > 0);
+            if (code == KEY_LEFTALT)    mod.lalt = (val > 0);
+            if (code == KEY_RIGHTALT)   mod.ralt = (val > 0);
+            if (code == KEY_LEFTMETA || code == KEY_RIGHTMETA) mod.super = (val > 0);
+            if (code == KEY_CAPSLOCK && val == 1) mod.capslock = !mod.capslock;
 
-            bool shift = lshift_down || rshift_down;
-            bool ctrl = lctrl_down || rctrl_down;
-            bool alt = lalt_down || ralt_down;
+            bool shift = mod.any_shift();
+            bool ctrl = mod.any_ctrl();
+            bool alt = mod.any_alt();
 
             if (val == 1) {
                 bool trigger = false;
@@ -267,13 +268,14 @@ int main(int argc, char* argv[]) {
                 } else if (cfg.hotkey == HotkeyToggle::ALT_Z) {
                     trigger = (alt && code == KEY_Z);
                 } else if (cfg.hotkey == HotkeyToggle::SUPER_SPACE) {
-                    trigger = (super_down && code == KEY_SPACE);
+                    trigger = (mod.super && code == KEY_SPACE);
                 }
 
                 if (trigger) {
                     vietnamese_enabled = !vietnamese_enabled;
                     engine.reset();
                     consumed_keys.clear();
+                    emission_pending_barrier = false;
                     Logger::info(vietnamese_enabled ? "Mode: [V]" : "Mode: [E]");
                     continue;
                 }
@@ -297,12 +299,13 @@ int main(int argc, char* argv[]) {
                     // Drop autorepeat completely to prevent tone-reversal and infinite repeat spam.
                     continue;
                 }
-                if (code == KEY_BACKSPACE && vietnamese_enabled && !ctrl && !alt && !super_down) {
+                if (code == KEY_BACKSPACE && vietnamese_enabled && !ctrl && !alt && !mod.super) {
                     int backs = 0;
                     std::string replacement;
                     if (engine.process_backspace(backs, replacement)) {
-                        if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
-                        if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
+                        emitter.emit_replacement(backs, replacement, cfg.micro_delay_us, mod);
+                        last_emission_time = std::chrono::steady_clock::now();
+                        emission_pending_barrier = true;
                     } else {
                         emitter.passthrough(ev);
                     }
@@ -311,6 +314,7 @@ int main(int argc, char* argv[]) {
                 if (is_navigation_or_reset(code)) {
                     engine.reset();
                     consumed_keys.clear();
+                    emission_pending_barrier = false;
                     emitter.passthrough(ev);
                     continue;
                 }
@@ -319,12 +323,23 @@ int main(int argc, char* argv[]) {
             }
 
             // From here on, val == 1 (Key Down)
+            // Temporal Barrier: If a replacement was just committed, guarantee that target GUI applications
+            // (Chrome, VSCode, GTK, Qt) have completely closed their preedit before the next keystroke is dispatched
+            if (emission_pending_barrier) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_emission_time).count();
+                if (elapsed_ms < 5) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5 - elapsed_ms));
+                }
+                emission_pending_barrier = false;
+            }
+
             if (!vietnamese_enabled) {
                 emitter.passthrough(ev);
                 continue;
             }
 
-            if (ctrl || alt || super_down) {
+            if (ctrl || alt || mod.super) {
                 engine.reset();
                 consumed_keys.clear();
                 emitter.passthrough(ev);
@@ -347,16 +362,17 @@ int main(int argc, char* argv[]) {
                 int backs = 0;
                 std::string replacement;
                 if (engine.process_backspace(backs, replacement)) {
-                    if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
-                    if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
+                    emitter.emit_replacement(backs, replacement, cfg.micro_delay_us, mod);
                     consumed_keys.insert(code);
+                    last_emission_time = std::chrono::steady_clock::now();
+                    emission_pending_barrier = true;
                 } else {
                     emitter.passthrough(ev);
                 }
                 continue;
             }
 
-            char c = scancode_to_ascii(code, shift, capslock_on);
+            char c = scancode_to_ascii(code, shift, mod.capslock);
             if (c == 0) {
                 engine.reset();
                 consumed_keys.clear();
@@ -367,9 +383,10 @@ int main(int argc, char* argv[]) {
             int backs = 0;
             std::string replacement;
             if (engine.process_key(c, backs, replacement)) {
-                if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
-                if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
+                emitter.emit_replacement(backs, replacement, cfg.micro_delay_us, mod);
                 consumed_keys.insert(code);
+                last_emission_time = std::chrono::steady_clock::now();
+                emission_pending_barrier = true;
             } else {
                 emitter.passthrough(ev);
             }
