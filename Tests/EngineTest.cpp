@@ -11,6 +11,18 @@
 
 using namespace senkey;
 
+static void pop_back_utf8(std::string& s, int count) {
+    for (int i = 0; i < count && !s.empty(); ++i) {
+        while (!s.empty()) {
+            unsigned char c = static_cast<unsigned char>(s.back());
+            s.pop_back();
+            if ((c & 0xC0) != 0x80) {
+                break;
+            }
+        }
+    }
+}
+
 static void test_telex_basic() {
     EngineWrapper engine;
     SenKeyConfig cfg;
@@ -32,7 +44,10 @@ static void test_telex_basic() {
         {"nguowif", "người"},
         {"quaanf", "quần"},
         {"chieecs", "chiếc"},
-        {"toor", "tổ"}
+        {"toor", "tổ"},
+        {"chaof", "chào"},
+        {"cacs", "các"},
+        {"bajn", "bạn"}
     };
 
     for (const auto& tc : cases) {
@@ -42,9 +57,7 @@ static void test_telex_basic() {
             int backs = 0;
             std::string rep;
             if (engine.process_key(c, backs, rep)) {
-                if (backs > 0 && backs <= static_cast<int>(current.size())) {
-                    current.erase(current.size() - backs);
-                }
+                pop_back_utf8(current, backs);
                 current += rep;
             } else {
                 current += c;
@@ -85,9 +98,7 @@ static void test_vni_basic() {
             int backs = 0;
             std::string rep;
             if (engine.process_key(c, backs, rep)) {
-                if (backs > 0 && backs <= static_cast<int>(current.size())) {
-                    current.erase(current.size() - backs);
-                }
+                pop_back_utf8(current, backs);
                 current += rep;
             } else {
                 current += c;
@@ -114,9 +125,7 @@ static void test_backspace_handling() {
         int backs = 0;
         std::string rep;
         if (engine.process_key(c, backs, rep)) {
-            if (backs > 0 && backs <= static_cast<int>(current.size())) {
-                current.erase(current.size() - backs);
-            }
+            pop_back_utf8(current, backs);
             current += rep;
         } else {
             current += c;
@@ -128,12 +137,10 @@ static void test_backspace_handling() {
     int backs = 0;
     std::string rep;
     if (engine.process_backspace(backs, rep)) {
-        if (backs > 0 && backs <= static_cast<int>(current.size())) {
-            current.erase(current.size() - backs);
-        }
+        pop_back_utf8(current, backs);
         current += rep;
     } else {
-        if (!current.empty()) current.pop_back();
+        pop_back_utf8(current, 1);
     }
     // Sau 1 lần xóa lùi, bộ gõ phục hồi trạng thái ký tự trước đó
     assert(!current.empty());

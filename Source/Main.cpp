@@ -301,12 +301,17 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
+            if (is_modifier(code)) {
+                emitter.passthrough(ev);
+                continue;
+            }
+
             if (code == KEY_BACKSPACE) {
                 int backs = 0;
                 std::string replacement;
                 if (engine.process_backspace(backs, replacement)) {
                     if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
-                    if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us);
+                    if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
                 } else {
                     emitter.passthrough(ev);
                 }
@@ -324,7 +329,7 @@ int main(int argc, char* argv[]) {
             std::string replacement;
             if (engine.process_key(c, backs, replacement)) {
                 if (backs > 0) emitter.emit_backspaces(backs, cfg.micro_delay_us);
-                if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us);
+                if (!replacement.empty()) emitter.emit_utf8_string(replacement, cfg.micro_delay_us, shift, ctrl);
             } else {
                 emitter.passthrough(ev);
             }

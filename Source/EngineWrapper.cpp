@@ -12,7 +12,7 @@ EngineWrapper::EngineWrapper() {
     std::memset(&shared_mem, 0, sizeof(shared_mem));
     shared_mem.input.init();
     shared_mem.input.setIM(UkTelex);
-    shared_mem.charsetId = CONV_CHARSET_UNIUTF8;
+    shared_mem.charsetId = CONV_CHARSET_XUTF8;
     shared_mem.vietKey = true;
     shared_mem.options.autoNonVnRestore = 1;
     shared_mem.options.freeMarking = 1;
@@ -30,6 +30,14 @@ void EngineWrapper::apply_config(const SenKeyConfig& config) {
         shared_mem.input.setIM(UkSimpleTelex);
     } else {
         shared_mem.input.setIM(UkTelex);
+    }
+
+    if (config.charset == Charset::TCVN3) {
+        shared_mem.charsetId = CONV_CHARSET_TCVN3;
+    } else if (config.charset == Charset::VNI_WINDOWS) {
+        shared_mem.charsetId = CONV_CHARSET_VNIWIN;
+    } else {
+        shared_mem.charsetId = CONV_CHARSET_XUTF8;
     }
 
     shared_mem.options.modernStyle = config.modern_spelling ? 1 : 0;
