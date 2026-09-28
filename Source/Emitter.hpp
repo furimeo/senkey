@@ -358,8 +358,8 @@ public:
                     tap_key(KEY_SPACE, 1500);
 
                     // Allow target application to process commit and close preedit
-                    // before injecting subsequent characters in this replacement string
-                    sleep_us(20000);
+                    // before injecting subsequent characters in this replacement string (2 full 60Hz frames: ~32ms)
+                    sleep_us(32000);
                 }
                 sleep_us(step_delay);
             }
