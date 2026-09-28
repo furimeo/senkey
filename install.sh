@@ -209,6 +209,7 @@ Type=simple
 ExecStart=/usr/local/bin/senkey --service
 Restart=always
 RestartSec=2
+Environment="SENKEY_USER=$CURRENT_USER"
 
 [Install]
 WantedBy=multi-user.target
@@ -227,6 +228,14 @@ echo "--> Đang tự động kích hoạt và khởi động lại dịch vụ S
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable --now senkey.service 2>/dev/null || true
 systemctl restart senkey.service 2>/dev/null || true
+sleep 1
+if [ -e /tmp/senkey-0.sock ]; then
+    chown root:input /tmp/senkey-0.sock 2>/dev/null || true
+    chmod 0660 /tmp/senkey-0.sock 2>/dev/null || true
+    if command -v setfacl >/dev/null 2>&1; then
+        setfacl -m u:"$CURRENT_USER":rw /tmp/senkey-0.sock 2>/dev/null || true
+    fi
+fi
 
 # Tự động khởi chạy giao diện khay hệ thống cho người dùng nếu đang trong phiên đồ họa
 if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
