@@ -178,14 +178,16 @@ int main(int argc, char* argv[]) {
     engine.apply_config(cfg);
     engine.load_macros(custom_macro);
 
+    std::atomic<bool> device_changed{false};
     HotplugWatcher hotplug;
-    hotplug.start([&grabber]() {
-        grabber.init_and_grab_all();
+    hotplug.start([&device_changed]() {
+        device_changed = true;
     });
 
+    std::atomic<bool> mouse_clicked{false};
     MouseWatcher mouse_watcher;
-    mouse_watcher.start([&engine]() {
-        engine.reset();
+    mouse_watcher.start([&mouse_clicked]() {
+        mouse_clicked = true;
     });
 
     std::atomic<bool> vietnamese_enabled{true};
@@ -225,6 +227,15 @@ int main(int argc, char* argv[]) {
     Logger::info("SenKey ready (" + std::string(vietnamese_enabled ? "V" : "E") + ")");
 
     while (g_running) {
+        if (device_changed.exchange(false)) {
+            Logger::info("Hardware hotplug event. Updating grabbed keyboards...");
+            grabber.init_and_grab_all();
+        }
+
+        if (mouse_clicked.exchange(false)) {
+            engine.reset();
+        }
+
         if (grabber.grabbed_count() == 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
             static int retry_ticks = 0;

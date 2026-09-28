@@ -22,7 +22,7 @@ bool HotplugWatcher::start(std::function<void()> callback) {
         return false;
     }
 
-    watch_fd = inotify_add_watch(inotify_fd, "/dev/input", IN_CREATE | IN_DELETE | IN_ATTRIB);
+    watch_fd = inotify_add_watch(inotify_fd, "/dev/input", IN_CREATE | IN_DELETE);
     if (watch_fd < 0) {
         close(inotify_fd);
         inotify_fd = -1;
