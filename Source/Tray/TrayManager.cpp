@@ -97,7 +97,12 @@ void TrayManager::show_panel() {
 void TrayManager::quit_application() {
     std::string resp;
     IpcServer::send_command("QUIT", resp);
-    gtk_main_quit();
+    GApplication* app = g_application_get_default();
+    if (app) {
+        g_application_quit(app);
+    } else {
+        gtk_main_quit();
+    }
 }
 
 } // namespace senkey
