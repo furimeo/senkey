@@ -22,9 +22,16 @@ fi
 # Dừng sạch mọi tiến trình và dịch vụ cũ trước khi thực hiện cài đặt
 echo "--> Dọn dẹp các tiến trình SenKey cũ đang chạy..."
 systemctl stop senkey.service 2>/dev/null || true
+if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
+    USER_UID=$(id -u "$CURRENT_USER" 2>/dev/null || true)
+    if [ -n "$USER_UID" ]; then
+        XDG_RUNTIME_DIR="/run/user/$USER_UID" sudo -u "$CURRENT_USER" systemctl --user stop senkey.service 2>/dev/null || true
+    fi
+fi
 pkill -9 -x senkey 2>/dev/null || true
 pkill -9 -x senkey-gui 2>/dev/null || true
 rm -f /tmp/senkey*.sock
+rm -f "$USER_HOME/.config/systemd/user/senkey.service" 2>/dev/null || true
 
 ACTION="${1:-install}"
 
@@ -165,14 +172,13 @@ cat << 'EOF' > /usr/share/applications/senkey.desktop
 [Desktop Entry]
 Name=SenKey
 GenericName=Bộ gõ tiếng Việt
-Comment=Bộ gõ tiếng Việt độc lập cho Linux
-Exec=senkey
+Comment=Bảng điều khiển bộ gõ tiếng Việt SenKey
+Exec=senkey-gui
 Icon=senkey
 Terminal=false
 Type=Application
 Categories=Utility;Settings;
 StartupNotify=false
-X-GNOME-Autostart-enabled=true
 EOF
 
 # Cấu hình tự khởi động cùng phiên đăng nhập (Autostart Tray)
@@ -181,7 +187,7 @@ cat << 'EOF' > /etc/xdg/autostart/senkey.desktop
 [Desktop Entry]
 Name=SenKey Tray
 GenericName=Bộ gõ tiếng Việt
-Comment=Bộ gõ tiếng Việt độc lập cho Linux
+Comment=Khay hệ thống bộ gõ tiếng Việt SenKey
 Exec=senkey-gui --tray
 Icon=senkey
 Terminal=false
@@ -203,38 +209,17 @@ Type=simple
 ExecStart=/usr/local/bin/senkey --service
 Restart=always
 RestartSec=2
-Group=input
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Cấu hình dịch vụ systemd cấp người dùng (user service)
-mkdir -p /usr/lib/systemd/user
-cat << 'EOF' > /usr/lib/systemd/user/senkey.service
-[Unit]
-Description=SenKey Vietnamese Input Daemon
-Documentation=https://github.com/furimeo/senkey
-After=graphical-session.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/senkey --service
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-EOF
-
 if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
-    SERVICE_DIR="$USER_HOME/.config/systemd/user"
-    mkdir -p "$SERVICE_DIR"
-    cp /usr/lib/systemd/user/senkey.service "$SERVICE_DIR/senkey.service"
     AUTOSTART_DIR="$USER_HOME/.config/autostart"
     mkdir -p "$AUTOSTART_DIR"
     cp /etc/xdg/autostart/senkey.desktop "$AUTOSTART_DIR/senkey.desktop"
-    chown -R "$CURRENT_USER:$CURRENT_USER" "$USER_HOME/.config/systemd" "$USER_HOME/.config/autostart" 2>/dev/null || true
+    rm -f "$USER_HOME/.config/systemd/user/senkey.service" 2>/dev/null || true
+    chown -R "$CURRENT_USER:$CURRENT_USER" "$AUTOSTART_DIR" 2>/dev/null || true
 fi
 
 # Tự động kích hoạt và khởi chạy dịch vụ ngay lập tức
