@@ -169,6 +169,20 @@ public:
     size_t grabbed_count() const {
         return devices.size();
     }
+
+    bool is_capslock_on() const {
+        for (const auto& dev : devices) {
+            if (dev && dev->fd >= 0) {
+                uint8_t leds[(LED_MAX + 7) / 8] = {0};
+                if (ioctl(dev->fd, EVIOCGLED(sizeof(leds)), leds) >= 0) {
+                    if (test_bit(LED_CAPSL, leds)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
 };
 
 } // namespace senkey

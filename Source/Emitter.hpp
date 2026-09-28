@@ -126,22 +126,106 @@ public:
         }
     }
 
-    bool emit_ascii_char(char c, int delay_us = 600, bool physical_shift = false) {
+    void release_all_modifiers(const ModifierState& mod) {
+        bool changed = false;
+        if (mod.lshift) { emit_event(EV_KEY, KEY_LEFTSHIFT, 0); changed = true; }
+        if (mod.rshift) { emit_event(EV_KEY, KEY_RIGHTSHIFT, 0); changed = true; }
+        if (mod.lctrl)  { emit_event(EV_KEY, KEY_LEFTCTRL, 0); changed = true; }
+        if (mod.rctrl)  { emit_event(EV_KEY, KEY_RIGHTCTRL, 0); changed = true; }
+        if (mod.lalt)   { emit_event(EV_KEY, KEY_LEFTALT, 0); changed = true; }
+        if (mod.ralt)   { emit_event(EV_KEY, KEY_RIGHTALT, 0); changed = true; }
+        if (mod.super)  {
+            emit_event(EV_KEY, KEY_LEFTMETA, 0);
+            emit_event(EV_KEY, KEY_RIGHTMETA, 0);
+            changed = true;
+        }
+        if (mod.capslock) {
+            // Temporarily disable CapsLock in uinput so Chromium/GTK don't reject Ctrl+Shift+U
+            tap_key(KEY_CAPSLOCK, 250);
+            changed = true;
+        }
+        if (changed) {
+            sync();
+            sleep_us(300);
+        }
+    }
+
+    void restore_all_modifiers(const ModifierState& mod) {
+        bool changed = false;
+        if (mod.capslock) {
+            // Restore CapsLock state in uinput
+            tap_key(KEY_CAPSLOCK, 250);
+            changed = true;
+        }
+        if (mod.lshift) { emit_event(EV_KEY, KEY_LEFTSHIFT, 1); changed = true; }
+        if (mod.rshift) { emit_event(EV_KEY, KEY_RIGHTSHIFT, 1); changed = true; }
+        if (mod.lctrl)  { emit_event(EV_KEY, KEY_LEFTCTRL, 1); changed = true; }
+        if (mod.rctrl)  { emit_event(EV_KEY, KEY_RIGHTCTRL, 1); changed = true; }
+        if (mod.lalt)   { emit_event(EV_KEY, KEY_LEFTALT, 1); changed = true; }
+        if (mod.ralt)   { emit_event(EV_KEY, KEY_RIGHTALT, 1); changed = true; }
+        if (mod.super)  { emit_event(EV_KEY, KEY_LEFTMETA, 1); changed = true; }
+        if (changed) {
+            sync();
+            sleep_us(300);
+        }
+    }
+
+    bool emit_ascii_char(char c, int delay_us = 600, const ModifierState& mod = {}) {
         bool shift_needed = false;
         int code = ascii_to_scancode(c, shift_needed);
         if (code <= 0) return false;
 
-        bool toggle_shift = (physical_shift != shift_needed);
-        if (toggle_shift) {
-            emit_event(EV_KEY, KEY_LEFTSHIFT, shift_needed ? 1 : 0);
+        bool had_lshift = mod.lshift;
+        bool had_rshift = mod.rshift;
+        bool had_ctrl = mod.any_ctrl();
+        bool had_alt = mod.any_alt();
+
+        // Release interfering modifiers
+        if (had_ctrl) {
+            if (mod.lctrl) emit_event(EV_KEY, KEY_LEFTCTRL, 0);
+            if (mod.rctrl) emit_event(EV_KEY, KEY_RIGHTCTRL, 0);
+        }
+        if (had_alt) {
+            if (mod.lalt) emit_event(EV_KEY, KEY_LEFTALT, 0);
+            if (mod.ralt) emit_event(EV_KEY, KEY_RIGHTALT, 0);
+        }
+
+        bool current_shift = (had_lshift || had_rshift);
+        if (current_shift != shift_needed) {
+            if (!shift_needed) {
+                if (had_lshift) emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
+                if (had_rshift) emit_event(EV_KEY, KEY_RIGHTSHIFT, 0);
+            } else {
+                emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+            }
             sync();
             sleep_us(delay_us);
         }
 
         tap_key(code, delay_us);
 
-        if (toggle_shift) {
-            emit_event(EV_KEY, KEY_LEFTSHIFT, physical_shift ? 1 : 0);
+        // Restore shift
+        if (current_shift != shift_needed) {
+            if (!shift_needed) {
+                if (had_lshift) emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+                if (had_rshift) emit_event(EV_KEY, KEY_RIGHTSHIFT, 1);
+            } else {
+                emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
+            }
+            sync();
+            sleep_us(delay_us);
+        }
+
+        // Restore ctrl and alt
+        if (had_ctrl) {
+            if (mod.lctrl) emit_event(EV_KEY, KEY_LEFTCTRL, 1);
+            if (mod.rctrl) emit_event(EV_KEY, KEY_RIGHTCTRL, 1);
+        }
+        if (had_alt) {
+            if (mod.lalt) emit_event(EV_KEY, KEY_LEFTALT, 1);
+            if (mod.ralt) emit_event(EV_KEY, KEY_RIGHTALT, 1);
+        }
+        if (had_ctrl || had_alt) {
             sync();
             sleep_us(delay_us);
         }
@@ -149,57 +233,132 @@ public:
         return true;
     }
 
-    void emit_unicode(uint32_t codepoint, int delay_us = 600, bool physical_shift = false, bool physical_ctrl = false) {
+    void emit_unicode(uint32_t codepoint, int delay_us = 600, const ModifierState& mod = {}) {
         if (codepoint < 128) {
-            emit_ascii_char(static_cast<char>(codepoint), delay_us, physical_shift);
+            emit_ascii_char(static_cast<char>(codepoint), delay_us, mod);
             return;
         }
 
-        char hex_buf[16];
-        std::snprintf(hex_buf, sizeof(hex_buf), "%x", codepoint);
+        // 1. Release ALL physical modifiers and CapsLock to ensure clean environment
+        release_all_modifiers(mod);
 
+        // 2. Trigger Ctrl+Shift+U
+        int trigger_delay = std::min(delay_us, 350);
         emit_event(EV_KEY, KEY_LEFTCTRL, 1);
         emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
         sync();
-        sleep_us(delay_us);
+        sleep_us(trigger_delay);
 
-        tap_key(KEY_U, delay_us);
+        tap_key(KEY_U, trigger_delay);
 
         emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
         emit_event(EV_KEY, KEY_LEFTCTRL, 0);
         sync();
-        sleep_us(delay_us);
+        sleep_us(trigger_delay);
 
+        // 3. Emit Hex Codepoint Digits (lowercase, fast)
+        char hex_buf[16];
+        std::snprintf(hex_buf, sizeof(hex_buf), "%x", codepoint);
+
+        int hex_delay = std::min(delay_us, 250);
         for (int i = 0; hex_buf[i] != '\0'; ++i) {
             int sc = hex_char_to_scancode(hex_buf[i]);
             if (sc > 0) {
-                tap_key(sc, delay_us);
+                tap_key(sc, hex_delay);
             }
         }
 
-        tap_key(KEY_ENTER, delay_us);
-        // Post-commit settling delay to give target GUI application event loops (e.g. Chrome, GTK)
-        // enough time to process Enter, insert the unicode glyph, and close the preedit widget
-        sleep_us(delay_us * 3);
+        // 4. Commit via Enter
+        tap_key(KEY_ENTER, trigger_delay);
 
-        // Restore physical modifier states if needed
-        if (physical_ctrl) emit_event(EV_KEY, KEY_LEFTCTRL, 1);
-        if (physical_shift) emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
-        if (physical_ctrl || physical_shift) {
-            sync();
-            sleep_us(delay_us);
-        }
+        // 5. Post-commit settling barrier: give target application event loops (e.g. Chrome, GTK)
+        // enough time to process Enter, insert the unicode glyph, and close the preedit widget
+        int settle_us = std::max(delay_us * 6, 4500);
+        sleep_us(settle_us);
+
+        // 6. Restore physical modifier states
+        restore_all_modifiers(mod);
     }
 
-    void emit_utf8_string(const std::string& str, int delay_us = 600, bool physical_shift = false, bool physical_ctrl = false) {
+    void emit_utf8_string(const std::string& str, int delay_us = 600, const ModifierState& mod = {}) {
         const char* ptr = str.data();
         const char* end = ptr + str.size();
         while (ptr < end) {
             uint32_t cp = utf8_next_codepoint(ptr, end);
             if (cp == 0) break;
-            emit_unicode(cp, delay_us, physical_shift, physical_ctrl);
+            emit_unicode(cp, delay_us, mod);
             sleep_us(delay_us);
         }
+    }
+
+    void emit_replacement(int backs, const std::string& str, int delay_us = 600, const ModifierState& mod = {}) {
+        if (backs <= 0 && str.empty()) return;
+
+        // Perform entire backspace + unicode replacement under released modifier protection
+        release_all_modifiers(mod);
+
+        if (backs > 0) {
+            int bs_delay = std::min(delay_us, 350);
+            for (int i = 0; i < backs; ++i) {
+                tap_key(KEY_BACKSPACE, bs_delay);
+            }
+        }
+
+        if (!str.empty()) {
+            const char* ptr = str.data();
+            const char* end = ptr + str.size();
+            while (ptr < end) {
+                uint32_t cp = utf8_next_codepoint(ptr, end);
+                if (cp == 0) break;
+                if (cp < 128) {
+                    bool shift_needed = false;
+                    int code = ascii_to_scancode(static_cast<char>(cp), shift_needed);
+                    if (code > 0) {
+                        if (shift_needed) {
+                            emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+                            sync();
+                            sleep_us(delay_us);
+                        }
+                        tap_key(code, delay_us);
+                        if (shift_needed) {
+                            emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
+                            sync();
+                            sleep_us(delay_us);
+                        }
+                    }
+                } else {
+                    int trigger_delay = std::min(delay_us, 350);
+                    emit_event(EV_KEY, KEY_LEFTCTRL, 1);
+                    emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+                    sync();
+                    sleep_us(trigger_delay);
+
+                    tap_key(KEY_U, trigger_delay);
+
+                    emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
+                    emit_event(EV_KEY, KEY_LEFTCTRL, 0);
+                    sync();
+                    sleep_us(trigger_delay);
+
+                    char hex_buf[16];
+                    std::snprintf(hex_buf, sizeof(hex_buf), "%x", cp);
+                    int hex_delay = std::min(delay_us, 250);
+                    for (int i = 0; hex_buf[i] != '\0'; ++i) {
+                        int sc = hex_char_to_scancode(hex_buf[i]);
+                        if (sc > 0) {
+                            tap_key(sc, hex_delay);
+                        }
+                    }
+
+                    tap_key(KEY_ENTER, trigger_delay);
+                    int settle_us = std::max(delay_us * 6, 4500);
+                    sleep_us(settle_us);
+                }
+                sleep_us(delay_us);
+            }
+        }
+
+        restore_all_modifiers(mod);
     }
 };
 

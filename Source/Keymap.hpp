@@ -7,6 +7,22 @@
 
 namespace senkey {
 
+struct ModifierState {
+    bool lshift = false;
+    bool rshift = false;
+    bool lctrl = false;
+    bool rctrl = false;
+    bool lalt = false;
+    bool ralt = false;
+    bool super = false;
+    bool capslock = false;
+
+    bool any_shift() const { return lshift || rshift; }
+    bool any_ctrl() const { return lctrl || rctrl; }
+    bool any_alt() const { return lalt || ralt; }
+    bool any_active() const { return any_shift() || any_ctrl() || any_alt() || super || capslock; }
+};
+
 inline bool is_modifier(int code) {
     switch (code) {
         case KEY_LEFTSHIFT:
