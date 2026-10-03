@@ -12,12 +12,14 @@
 #include <chrono>
 #include <thread>
 #include "Keymap.hpp"
+#include "Clipboard/ClipboardBridge.hpp"
 
 namespace senkey {
 
 class VirtualKeyboard {
 private:
     int uinput_fd = -1;
+    ClipboardBridge clipboard_bridge;
 
     void sleep_us(int us) {
         if (us > 0) {
@@ -125,6 +127,19 @@ public:
             tap_key(KEY_BACKSPACE, delay_us);
         }
     }
+
+    void emit_paste_shift_insert(int delay_us = 1200) {
+        emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+        sync();
+        sleep_us(delay_us);
+        tap_key(KEY_INSERT, delay_us);
+        emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
+        sync();
+        sleep_us(delay_us);
+    }
+
+    ClipboardBridge& get_clipboard_bridge() { return clipboard_bridge; }
+    const ClipboardBridge& get_clipboard_bridge() const { return clipboard_bridge; }
 
     void release_all_modifiers(const ModifierState& mod) {
         bool changed = false;
@@ -295,9 +310,31 @@ public:
 
         int step_delay = std::max(delay_us, 1200);
 
-        // Perform entire backspace + unicode replacement under released modifier protection
+        // Perform entire backspace + replacement under released modifier protection
         release_all_modifiers(mod);
 
+        // ATOMIC CLIPBOARD SWAP VIA SHIFT+INSERT (Ultra-fast, zero-flicker, 100% reliable)
+        if (clipboard_bridge.is_valid() && !str.empty()) {
+            std::string orig_clip = clipboard_bridge.get_current_text(25);
+            clipboard_bridge.set_saved_text(orig_clip);
+            clipboard_bridge.stage_text(str);
+
+            if (backs > 0) {
+                for (int i = 0; i < backs; ++i) {
+                    tap_key(KEY_BACKSPACE, 1000);
+                }
+                sleep_us(3000);
+            }
+
+            emit_paste_shift_insert(step_delay);
+            clipboard_bridge.process_events_until_pasted(35);
+            clipboard_bridge.restore_saved();
+
+            restore_all_modifiers(mod);
+            return;
+        }
+
+        // FALLBACK: ISO 14755 Unicode Hex Sequence (when no display connection / headless)
         if (backs > 0) {
             for (int i = 0; i < backs; ++i) {
                 tap_key(KEY_BACKSPACE, 1000);

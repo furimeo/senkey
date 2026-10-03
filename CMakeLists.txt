@@ -18,7 +18,7 @@ if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
 endif()
 
 if(NOT DEFINED SENKEY_VERSION OR SENKEY_VERSION STREQUAL "")
-    set(SENKEY_VERSION "0.2.5")
+    set(SENKEY_VERSION "0.3.0")
 endif()
 
 # Trích xuất định dạng số thuần cho CMake project(...)
@@ -63,6 +63,9 @@ set(UNIKEY_CORE_SOURCES
 add_library(UniKeyCore STATIC ${UNIKEY_CORE_SOURCES})
 target_include_directories(UniKeyCore PUBLIC UniKeyCore)
 
+# Find X11 for ultra-fast atomic clipboard swap
+find_package(X11 REQUIRED)
+
 # SenKey daemon shared core library
 set(SENKEY_CORE_SOURCES
     Source/Config.cpp
@@ -71,15 +74,16 @@ set(SENKEY_CORE_SOURCES
     Source/Ipc.cpp
     Source/Logger.cpp
     Source/Macro.cpp
+    Source/Clipboard/ClipboardBridge.cpp
 )
 
 add_library(SenKeyCoreLib STATIC ${SENKEY_CORE_SOURCES})
-target_include_directories(SenKeyCoreLib PUBLIC Source UniKeyCore)
-target_link_libraries(SenKeyCoreLib PUBLIC UniKeyCore pthread)
+target_include_directories(SenKeyCoreLib PUBLIC Source Source/Clipboard UniKeyCore ${X11_INCLUDE_DIR})
+target_link_libraries(SenKeyCoreLib PUBLIC UniKeyCore pthread ${X11_LIBRARIES})
 
 # Main Daemon Binary
 add_executable(senkey Source/Main.cpp)
-target_link_libraries(senkey PRIVATE SenKeyCoreLib UniKeyCore pthread)
+target_link_libraries(senkey PRIVATE SenKeyCoreLib UniKeyCore pthread ${X11_LIBRARIES})
 
 # GUI Binary (requires GTK3)
 find_package(PkgConfig QUIET)
