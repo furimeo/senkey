@@ -4,9 +4,15 @@ target_link_libraries(engine_test PRIVATE SenKeyCoreLib UniKeyCore pthread)
 add_executable(pipeline_memory_test PipelineMemoryTest.cpp)
 target_link_libraries(pipeline_memory_test PRIVATE SenKeyCoreLib UniKeyCore pthread)
 
-add_executable(clipboard_bridge_test ClipboardBridgeTest.cpp)
-target_link_libraries(clipboard_bridge_test PRIVATE SenKeyCoreLib UniKeyCore pthread)
+add_executable(pipeline_queue_test PipelineQueueTest.cpp)
+target_link_libraries(pipeline_queue_test PRIVATE SenKeyCoreLib UniKeyCore pthread)
 
 add_test(NAME EngineTest COMMAND engine_test)
 add_test(NAME PipelineMemoryTest COMMAND pipeline_memory_test)
-add_test(NAME ClipboardBridgeTest COMMAND clipboard_bridge_test)
+add_test(NAME PipelineQueueTest COMMAND pipeline_queue_test)
+
+if(X11_FOUND)
+    add_executable(clipboard_bridge_test ClipboardBridgeTest.cpp)
+    target_link_libraries(clipboard_bridge_test PRIVATE SenKeyCoreLib UniKeyCore pthread)
+    add_test(NAME ClipboardBridgeTest COMMAND clipboard_bridge_test)
+endif()

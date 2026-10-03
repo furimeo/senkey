@@ -30,6 +30,11 @@ struct GrabbedDevice {
     }
 };
 
+struct KeyEvent {
+    int device_id = -1;
+    struct input_event ev{};
+};
+
 class KeyboardGrabber {
 private:
     std::vector<std::shared_ptr<GrabbedDevice>> devices;
@@ -159,6 +164,31 @@ public:
                 int count = bytes / sizeof(struct input_event);
                 for (int j = 0; j < count; ++j) {
                     out_events.push_back(evs[j]);
+                }
+            }
+        }
+
+        return static_cast<int>(out_events.size());
+    }
+
+    int wait_events(std::vector<KeyEvent>& out_events, int timeout_ms = 50) {
+        out_events.clear();
+        if (epoll_fd < 0 || devices.empty()) return -1;
+
+        struct epoll_event ep_events[16];
+        int nfds = epoll_wait(epoll_fd, ep_events, 16, timeout_ms);
+        if (nfds <= 0) return nfds;
+
+        for (int i = 0; i < nfds; ++i) {
+            auto* dev = static_cast<GrabbedDevice*>(ep_events[i].data.ptr);
+            if (!dev || dev->fd < 0) continue;
+
+            struct input_event evs[32];
+            ssize_t bytes = read(dev->fd, evs, sizeof(evs));
+            if (bytes > 0) {
+                int count = bytes / sizeof(struct input_event);
+                for (int j = 0; j < count; ++j) {
+                    out_events.push_back({dev->fd, evs[j]});
                 }
             }
         }

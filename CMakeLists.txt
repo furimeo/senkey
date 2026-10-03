@@ -63,8 +63,28 @@ set(UNIKEY_CORE_SOURCES
 add_library(UniKeyCore STATIC ${UNIKEY_CORE_SOURCES})
 target_include_directories(UniKeyCore PUBLIC UniKeyCore)
 
-# Find X11 for ultra-fast atomic clipboard swap
-find_package(X11 REQUIRED)
+# Optional dependencies detection via PkgConfig
+find_package(PkgConfig QUIET)
+
+# Optional xkbcommon
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(XKBCOMMON QUIET xkbcommon)
+    if(XKBCOMMON_FOUND)
+        message(STATUS "xkbcommon found. Enabling native layout decoding.")
+        add_compile_definitions(HAVE_XKBCOMMON=1)
+    else()
+        message(STATUS "xkbcommon not found. Using fallback keymap decoder.")
+    endif()
+endif()
+
+# Optional X11
+find_package(X11 QUIET)
+if(X11_FOUND)
+    message(STATUS "X11 found. Enabling optional X11 clipboard integration.")
+    add_compile_definitions(HAVE_X11=1)
+else()
+    message(STATUS "X11 not found. Operating in pure Wayland/headless independent mode.")
+endif()
 
 # SenKey daemon shared core library
 set(SENKEY_CORE_SOURCES
@@ -74,19 +94,35 @@ set(SENKEY_CORE_SOURCES
     Source/Ipc.cpp
     Source/Logger.cpp
     Source/Macro.cpp
-    Source/Clipboard/ClipboardBridge.cpp
 )
 
+if(X11_FOUND)
+    list(APPEND SENKEY_CORE_SOURCES Source/Clipboard/ClipboardBridge.cpp)
+endif()
+
 add_library(SenKeyCoreLib STATIC ${SENKEY_CORE_SOURCES})
-target_include_directories(SenKeyCoreLib PUBLIC Source Source/Clipboard UniKeyCore ${X11_INCLUDE_DIR})
-target_link_libraries(SenKeyCoreLib PUBLIC UniKeyCore pthread ${X11_LIBRARIES})
+target_include_directories(SenKeyCoreLib PUBLIC Source Source/Pipeline Source/Input Source/Output UniKeyCore)
+if(XKBCOMMON_FOUND)
+    target_include_directories(SenKeyCoreLib PUBLIC ${XKBCOMMON_INCLUDE_DIRS})
+    target_link_libraries(SenKeyCoreLib PUBLIC ${XKBCOMMON_LIBRARIES})
+endif()
+if(X11_FOUND)
+    target_include_directories(SenKeyCoreLib PUBLIC Source/Clipboard ${X11_INCLUDE_DIR})
+    target_link_libraries(SenKeyCoreLib PUBLIC ${X11_LIBRARIES})
+endif()
+target_link_libraries(SenKeyCoreLib PUBLIC UniKeyCore pthread)
 
 # Main Daemon Binary
 add_executable(senkey Source/Main.cpp)
-target_link_libraries(senkey PRIVATE SenKeyCoreLib UniKeyCore pthread ${X11_LIBRARIES})
+target_link_libraries(senkey PRIVATE SenKeyCoreLib UniKeyCore pthread)
+if(XKBCOMMON_FOUND)
+    target_link_libraries(senkey PRIVATE ${XKBCOMMON_LIBRARIES})
+endif()
+if(X11_FOUND)
+    target_link_libraries(senkey PRIVATE ${X11_LIBRARIES})
+endif()
 
 # GUI Binary (requires GTK3)
-find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(GTK3 QUIET gtk+-3.0)
 endif()

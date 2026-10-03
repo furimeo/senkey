@@ -94,8 +94,10 @@ std::string ClipboardBridge::get_current_text(int timeout_ms) {
                                &nitems, &bytes_after, &prop_data);
 
             std::string res;
-            if (prop_data && nitems > 0) {
-                res = std::string(reinterpret_cast<char*>(prop_data), nitems);
+            if (prop_data) {
+                if (nitems > 0) {
+                    res = std::string(reinterpret_cast<char*>(prop_data), nitems);
+                }
                 XFree(prop_data);
             }
             return res;

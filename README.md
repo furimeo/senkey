@@ -8,6 +8,7 @@ Kiến trúc luồng xử lý kênh đơn FIFO tầng nhân kết hợp giữa `
 - Nhân Linux 2.6 trở lên hỗ trợ `evdev` và `uinput`
 - Trình biên dịch C++17 (`g++` hoặc `clang++`)
 - `cmake` (phiên bản >= 3.16)
+- `libxkbcommon-dev` (khuyến nghị: giải mã layout bàn phím đa quốc gia QWERTY/AZERTY/QWERTZ)
 - Thư viện giao diện (tùy chọn cho bảng điều khiển `senkey-gui`): `libgtk-3-dev`, `libglib2.0-dev-bin`
 
 ## Hướng dẫn biên dịch
@@ -132,6 +133,9 @@ Tệp định nghĩa từ gõ tắt: `~/.config/senkey/macro.txt` (định dạn
 │   ├── Main.cpp                # Điểm khởi chạy của tiến trình daemon
 │   ├── MouseWatcher.hpp        # Lắng nghe sự kiện chuột để đặt lại đệm
 │   ├── Types.hpp               # Định nghĩa kiểu dữ liệu và cấu trúc chung
+│   ├── Input/                  # Tầng giải mã bàn phím nâng cao (XkbState qua libxkbcommon)
+│   ├── Output/                 # Tầng trừu tượng xuất phím (OutputBackend, uinput, wayland/x11)
+│   ├── Pipeline/               # Hàng đợi sự kiện đa luồng phi đồng bộ (EventQueue)
 │   ├── GUI/                    # Giao diện đồ họa bảng điều khiển GTK3
 │   │   ├── AboutDialog.hpp / .cpp      # Hộp thoại thông tin tác giả và bản quyền
 │   │   ├── AdvancedSection.hpp / .cpp  # Khung tùy chọn cài đặt mở rộng
@@ -148,7 +152,9 @@ Tệp định nghĩa từ gõ tắt: `~/.config/senkey/macro.txt` (định dạn
 ├── Tests/                      # Bộ kiểm thử tự động
 │   ├── CMakeLists.txt          # Cấu hình kiểm thử CTest
 │   ├── EngineTest.cpp          # Kiểm thử giải thuật gõ Telex, VNI
-│   └── PipelineMemoryTest.cpp  # Kiểm thử áp lực và kiểm tra an toàn bộ nhớ
+│   ├── PipelineMemoryTest.cpp  # Kiểm thử áp lực và kiểm tra an toàn bộ nhớ
+│   ├── PipelineQueueTest.cpp   # Kiểm thử hàng đợi EventQueue và xkbcommon
+│   └── ClipboardBridgeTest.cpp # Kiểm thử cầu nối Clipboard X11
 ├── UniKeyCore/                 # Lõi thuật toán gõ tiếng Việt UniKey
 │   ├── COPYING                 # Giấy phép LGPL cho lõi UniKey
 │   ├── ukengine.cpp / .h       # Thuật toán xử lý bỏ dấu tiếng Việt

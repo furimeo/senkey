@@ -8,6 +8,8 @@
 #include <string>
 #include <cstring>
 #include <chrono>
+#include <set>
+#include <memory>
 #include <thread>
 #include <unordered_set>
 #include <unistd.h>
@@ -24,6 +26,8 @@
 #include "MouseWatcher.hpp"
 #include "EngineWrapper.hpp"
 #include "Ipc.hpp"
+#include "Pipeline/EventQueue.hpp"
+#include "Input/XkbState.hpp"
 
 using namespace senkey;
 
@@ -226,12 +230,23 @@ int main(int argc, char* argv[]) {
     ModifierState mod;
     mod.capslock = grabber.is_capslock_on();
 
-    std::unordered_set<int> consumed_keys;
-    std::vector<input_event> events;
+    std::set<std::pair<int, int>> consumed_keys;
+    std::vector<KeyEvent> events;
     events.reserve(32);
 
-    auto last_emission_time = std::chrono::steady_clock::now();
-    bool emission_pending_barrier = false;
+    XkbState xkb_state;
+    EventQueue event_queue;
+
+    std::thread emitter_worker([&event_queue, &emitter]() {
+        OutputAction action;
+        while (event_queue.pop(action)) {
+            if (action.type == ActionType::PASSTHROUGH) {
+                emitter.emit_passthrough(action.raw_event);
+            } else if (action.type == ActionType::REPLACEMENT) {
+                emitter.emit_replacement(action.backs, action.replacement, action.mod);
+            }
+        }
+    });
 
     Logger::info("SenKey ready (" + std::string(vietnamese_enabled ? "V" : "E") + ")");
 
@@ -241,13 +256,11 @@ int main(int argc, char* argv[]) {
             grabber.init_and_grab_all();
             mod.capslock = grabber.is_capslock_on();
             consumed_keys.clear();
-            emission_pending_barrier = false;
         }
 
         if (mouse_clicked.exchange(false)) {
             engine.reset();
             consumed_keys.clear();
-            emission_pending_barrier = false;
         }
 
         if (grabber.grabbed_count() == 0) {
@@ -264,9 +277,12 @@ int main(int argc, char* argv[]) {
         int count = grabber.wait_events(events, 50);
         if (count <= 0) continue;
 
-        for (const auto& ev : events) {
+        for (const auto& key_ev : events) {
+            const auto& ev = key_ev.ev;
+            int dev_id = key_ev.device_id;
+
             if (ev.type != EV_KEY) {
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
@@ -301,7 +317,6 @@ int main(int argc, char* argv[]) {
                     vietnamese_enabled = !vietnamese_enabled;
                     engine.reset();
                     consumed_keys.clear();
-                    emission_pending_barrier = false;
                     Logger::info(vietnamese_enabled ? "Mode: [V]" : "Mode: [E]");
                     continue;
                 }
@@ -309,78 +324,64 @@ int main(int argc, char* argv[]) {
 
             // Key release (val == 0)
             if (val == 0) {
-                if (consumed_keys.erase(code) > 0) {
+                xkb_state.process_key(code, 0, mod);
+                if (consumed_keys.erase({dev_id, code}) > 0) {
                     // Physical key was absorbed by the Vietnamese engine on press.
                     // uinput never received a key-down for it, so do not pass key-up.
                     continue;
                 }
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
             // Autorepeat handling (val == 2)
             if (val == 2) {
-                if (consumed_keys.count(code) > 0) {
-                    // This key was consumed by the Vietnamese engine (e.g. 'r' diacritic).
-                    // Drop autorepeat completely to prevent tone-reversal and infinite repeat spam.
+                if (consumed_keys.count({dev_id, code}) > 0) {
+                    // This key was consumed by the Vietnamese engine. Drop autorepeat.
                     continue;
                 }
                 if (code == KEY_BACKSPACE && vietnamese_enabled && !ctrl && !alt && !mod.super) {
                     int backs = 0;
                     std::string replacement;
                     if (engine.process_backspace(backs, replacement)) {
-                        emitter.emit_replacement(backs, replacement, cfg.micro_delay_us, mod);
-                        last_emission_time = std::chrono::steady_clock::now();
-                        emission_pending_barrier = true;
+                        event_queue.push({ActionType::REPLACEMENT, {}, backs, replacement, mod});
                     } else {
-                        emitter.passthrough(ev);
+                        event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                     }
                     continue;
                 }
                 if (is_navigation_or_reset(code)) {
                     engine.reset();
                     consumed_keys.clear();
-                    emission_pending_barrier = false;
-                    emitter.passthrough(ev);
+                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                     continue;
                 }
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
             // From here on, val == 1 (Key Down)
-            // Temporal Barrier: If a replacement was just committed, guarantee that target GUI applications
-            // (Chrome, VSCode, GTK, Qt) have completely closed their preedit before the next keystroke is dispatched
-            if (emission_pending_barrier) {
-                auto now = std::chrono::steady_clock::now();
-                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_emission_time).count();
-                if (elapsed_ms < 12) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(12 - elapsed_ms));
-                }
-                emission_pending_barrier = false;
-            }
-
             if (!vietnamese_enabled) {
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
             if (ctrl || alt || mod.super) {
                 engine.reset();
                 consumed_keys.clear();
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
             if (is_navigation_or_reset(code)) {
                 engine.reset();
                 consumed_keys.clear();
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
             if (is_modifier(code)) {
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
@@ -388,38 +389,38 @@ int main(int argc, char* argv[]) {
                 int backs = 0;
                 std::string replacement;
                 if (engine.process_backspace(backs, replacement)) {
-                    emitter.emit_replacement(backs, replacement, cfg.micro_delay_us, mod);
-                    consumed_keys.insert(code);
-                    last_emission_time = std::chrono::steady_clock::now();
-                    emission_pending_barrier = true;
+                    event_queue.push({ActionType::REPLACEMENT, {}, backs, replacement, mod});
+                    consumed_keys.insert({dev_id, code});
                 } else {
-                    emitter.passthrough(ev);
+                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 }
                 continue;
             }
 
-            char c = scancode_to_ascii(code, shift, mod.capslock);
+            char c = xkb_state.process_key(code, 1, mod);
             if (c == 0) {
                 engine.reset();
                 consumed_keys.clear();
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
                 continue;
             }
 
             int backs = 0;
             std::string replacement;
             if (engine.process_key(c, backs, replacement)) {
-                emitter.emit_replacement(backs, replacement, cfg.micro_delay_us, mod);
-                consumed_keys.insert(code);
-                last_emission_time = std::chrono::steady_clock::now();
-                emission_pending_barrier = true;
+                event_queue.push({ActionType::REPLACEMENT, {}, backs, replacement, mod});
+                consumed_keys.insert({dev_id, code});
             } else {
-                emitter.passthrough(ev);
+                event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
             }
         }
     }
 
     Logger::info("Exiting SenKey");
+    event_queue.stop();
+    if (emitter_worker.joinable()) {
+        emitter_worker.join();
+    }
     ipc.stop();
     mouse_watcher.stop();
     hotplug.stop();

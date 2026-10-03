@@ -90,6 +90,9 @@ if command -v apt-get >/dev/null 2>&1; then
     if ! dpkg -s libgtk-3-0 >/dev/null 2>&1; then
         MISSING_PKGS="$MISSING_PKGS libgtk-3-0"
     fi
+    if ! dpkg -s libxkbcommon0 >/dev/null 2>&1; then
+        MISSING_PKGS="$MISSING_PKGS libxkbcommon0"
+    fi
     if ! dpkg -s acl >/dev/null 2>&1; then
         MISSING_PKGS="$MISSING_PKGS acl"
     fi
