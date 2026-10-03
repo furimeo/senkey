@@ -62,7 +62,7 @@ Quá trình cài đặt sẽ thiết lập:
 - Lối tắt ứng dụng tại `/usr/share/applications/senkey.desktop`
 - Biểu tượng ứng dụng tại `/usr/share/icons/hicolor/48x48/apps/`
 - Quy tắc cấp quyền uinput tại `/etc/udev/rules.d/99-uinput.rules`
-- Dịch vụ người dùng systemd tại `~/.config/systemd/user/senkey.service`
+- Dịch vụ hệ thống systemd tại `/etc/systemd/system/senkey.service`
 
 ## Hướng dẫn sử dụng
 

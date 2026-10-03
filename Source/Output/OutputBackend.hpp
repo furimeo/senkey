@@ -10,6 +10,12 @@
 
 namespace senkey {
 
+struct TextTransaction {
+    int backs = 0;
+    std::string utf8;
+    ModifierState mod{};
+};
+
 class OutputBackend {
 public:
     virtual ~OutputBackend() = default;
@@ -18,6 +24,9 @@ public:
     virtual bool is_valid() const = 0;
     virtual void emit_passthrough(const struct input_event& ev) = 0;
     virtual void emit_replacement(int backs, const std::string& replacement, const ModifierState& mod) = 0;
+    virtual void emit_transaction(const TextTransaction& tx) {
+        emit_replacement(tx.backs, tx.utf8, tx.mod);
+    }
 };
 
 } // namespace senkey

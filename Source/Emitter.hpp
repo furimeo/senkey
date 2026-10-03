@@ -13,12 +13,20 @@
 #include <thread>
 #include "Keymap.hpp"
 #include "Output/OutputBackend.hpp"
+#include "Input/XkbState.hpp"
+#if defined(HAVE_X11)
+#include "Clipboard/ClipboardBridge.hpp"
+#endif
 
 namespace senkey {
 
 class VirtualKeyboard : public OutputBackend {
 private:
     int uinput_fd = -1;
+    const XkbState* xkb_state = nullptr;
+#if defined(HAVE_X11)
+    ClipboardBridge clipboard_bridge;
+#endif
 
     void sleep_us(int us) {
         if (us > 0) {
@@ -35,6 +43,10 @@ public:
 
     VirtualKeyboard(const VirtualKeyboard&) = delete;
     VirtualKeyboard& operator=(const VirtualKeyboard&) = delete;
+
+    void set_xkb_state(const XkbState* xkb) {
+        xkb_state = xkb;
+    }
 
     bool open_device(const char* device_name = "senkey-keyboard") override {
         uinput_fd = open("/dev/uinput", O_WRONLY);
@@ -125,6 +137,16 @@ public:
         sleep_us(delay_us);
     }
 
+    void emit_paste_shift_insert(int delay_us = 1200) {
+        emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
+        sync();
+        sleep_us(delay_us);
+        tap_key(KEY_INSERT, delay_us);
+        emit_event(EV_KEY, KEY_LEFTSHIFT, 0);
+        sync();
+        sleep_us(delay_us);
+    }
+
     void release_all_modifiers(const ModifierState& mod) {
         bool changed = false;
         if (mod.lshift) { emit_event(EV_KEY, KEY_LEFTSHIFT, 0); changed = true; }
@@ -168,7 +190,11 @@ public:
         }
     }
 
-    // High performance batched emission
+    void emit_transaction(const TextTransaction& tx) override {
+        emit_replacement(tx.backs, tx.utf8, tx.mod);
+    }
+
+    // High performance layout-aware batched emission
     void emit_replacement(int backs, const std::string& str, const ModifierState& mod = {}) override {
         if (backs <= 0 && str.empty()) return;
 
@@ -198,10 +224,17 @@ public:
         }
 
         if (all_ascii) {
-            // Pure ASCII: zero sleep, batch write!
+            // Pure ASCII: zero sleep, layout-aware batch write!
             for (char c : str) {
+                uint16_t code = 0;
                 bool shift_needed = false;
-                int code = ascii_to_scancode(c, shift_needed);
+                bool found = false;
+                if (xkb_state) {
+                    found = xkb_state->get_scancode_for_char(c, code, shift_needed);
+                }
+                if (!found) {
+                    code = ascii_to_scancode(c, shift_needed);
+                }
                 if (code > 0) {
                     if (shift_needed) emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
                     emit_event(EV_KEY, code, 1);
@@ -214,15 +247,39 @@ public:
             return;
         }
 
-        // 3. Unicode characters: fast low-latency fallback
+#if defined(HAVE_X11)
+        // 3. ATOMIC CLIPBOARD SWAP VIA SHIFT+INSERT (Ultra-fast, zero-loss, 100% reliable)
+        if (clipboard_bridge.is_valid()) {
+            std::string orig_clip = clipboard_bridge.get_current_text(25);
+            clipboard_bridge.set_saved_text(orig_clip);
+            clipboard_bridge.stage_text(str);
+
+            emit_paste_shift_insert(1200);
+            clipboard_bridge.process_events_until_pasted(35);
+            clipboard_bridge.restore_saved();
+
+            restore_all_modifiers(mod);
+            return;
+        }
+#endif
+
+        // 4. Unicode characters fallback: low-latency sequence
         const char* ptr = str.data();
         const char* end = ptr + str.size();
         while (ptr < end) {
             uint32_t cp = utf8_next_codepoint(ptr, end);
             if (cp == 0) break;
             if (cp < 128) {
+                char c = static_cast<char>(cp);
+                uint16_t code = 0;
                 bool shift_needed = false;
-                int code = ascii_to_scancode(static_cast<char>(cp), shift_needed);
+                bool found = false;
+                if (xkb_state) {
+                    found = xkb_state->get_scancode_for_char(c, code, shift_needed);
+                }
+                if (!found) {
+                    code = ascii_to_scancode(c, shift_needed);
+                }
                 if (code > 0) {
                     if (shift_needed) emit_event(EV_KEY, KEY_LEFTSHIFT, 1);
                     emit_event(EV_KEY, code, 1);

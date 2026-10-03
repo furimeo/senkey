@@ -27,6 +27,7 @@
 #include "EngineWrapper.hpp"
 #include "Ipc.hpp"
 #include "Pipeline/EventQueue.hpp"
+#include "Pipeline/IpcCommandQueue.hpp"
 #include "Input/XkbState.hpp"
 
 using namespace senkey;
@@ -207,22 +208,29 @@ int main(int argc, char* argv[]) {
 
     std::atomic<bool> vietnamese_enabled{true};
 
+    IpcCommandQueue ipc_cmd_queue;
+    ipc_cmd_queue.set_wake_callback([&grabber]() {
+        grabber.wake();
+    });
+
     IpcServer ipc;
     ipc.start([&](const std::string& cmd) -> std::string {
         if (cmd == "STATUS") {
-            return vietnamese_enabled ? "V" : "E";
-        } else if (cmd == "TOGGLE") {
-            vietnamese_enabled = !vietnamese_enabled;
-            engine.reset();
-            return vietnamese_enabled ? "V" : "E";
+            // Read-only, lock-free, zero thread contention
+            return vietnamese_enabled.load() ? "V" : "E";
         } else if (cmd == "QUIT") {
             g_running = false;
+            grabber.wake();
             return "OK";
-        } else if (cmd == "RELOAD") {
-            cfg_mgr.load();
-            engine.apply_config(cfg_mgr.get());
-            engine.load_macros();
-            return "OK";
+        } else if (cmd == "TOGGLE" || cmd == "RELOAD") {
+            // Mutating commands routed to main thread as sole owner of EngineWrapper
+            auto prom = std::make_shared<std::promise<std::string>>();
+            auto fut = prom->get_future();
+            ipc_cmd_queue.push({cmd, prom});
+            if (fut.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready) {
+                return fut.get();
+            }
+            return "TIMEOUT";
         }
         return "ERR";
     });
@@ -235,6 +243,7 @@ int main(int argc, char* argv[]) {
     events.reserve(32);
 
     XkbState xkb_state;
+    emitter.set_xkb_state(&xkb_state);
     EventQueue event_queue;
 
     std::thread emitter_worker([&event_queue, &emitter]() {
@@ -248,9 +257,29 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    Logger::info("SenKey ready (" + std::string(vietnamese_enabled ? "V" : "E") + ")");
+    Logger::info("SenKey ready (" + std::string(vietnamese_enabled.load() ? "V" : "E") + ")");
 
     while (g_running) {
+        // Safely drain and process pending IPC commands on the single owner thread
+        auto pending_cmds = ipc_cmd_queue.drain();
+        for (auto& req : pending_cmds) {
+            if (req.command == "TOGGLE") {
+                vietnamese_enabled = !vietnamese_enabled.load();
+                engine.reset();
+                consumed_keys.clear();
+                Logger::info(vietnamese_enabled.load() ? "Mode: [V]" : "Mode: [E]");
+                req.promise->set_value(vietnamese_enabled.load() ? "V" : "E");
+            } else if (req.command == "RELOAD") {
+                cfg_mgr.load();
+                engine.apply_config(cfg_mgr.get());
+                engine.load_macros();
+                Logger::info("Configuration and macros reloaded.");
+                req.promise->set_value("OK");
+            } else {
+                req.promise->set_value("ERR");
+            }
+        }
+
         if (device_changed.exchange(false)) {
             Logger::info("Hardware hotplug event. Updating grabbed keyboards...");
             grabber.init_and_grab_all();

@@ -8,6 +8,7 @@
 #include <linux/input.h>
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <cstring>
 #include <vector>
 #include <string>
@@ -39,6 +40,7 @@ class KeyboardGrabber {
 private:
     std::vector<std::shared_ptr<GrabbedDevice>> devices;
     int epoll_fd = -1;
+    int wake_fd = -1;
 
     static bool test_bit(int nr, const uint8_t* addr) {
         return (addr[nr / 8] & (1 << (nr % 8))) != 0;
@@ -93,6 +95,14 @@ public:
             return false;
         }
 
+        wake_fd = eventfd(0, EFD_NONBLOCK);
+        if (wake_fd >= 0) {
+            struct epoll_event ev;
+            ev.events = EPOLLIN;
+            ev.data.ptr = nullptr;
+            epoll_ctl(epoll_fd, EPOLL_CTL_ADD, wake_fd, &ev);
+        }
+
         DIR* dir = opendir("/dev/input");
         if (!dir) {
             return false;
@@ -140,9 +150,21 @@ public:
 
     void close_all() {
         devices.clear();
+        if (wake_fd >= 0) {
+            close(wake_fd);
+            wake_fd = -1;
+        }
         if (epoll_fd >= 0) {
             close(epoll_fd);
             epoll_fd = -1;
+        }
+    }
+
+    void wake() {
+        if (wake_fd >= 0) {
+            uint64_t val = 1;
+            ssize_t s = write(wake_fd, &val, sizeof(val));
+            (void)s;
         }
     }
 
@@ -155,6 +177,15 @@ public:
         if (nfds <= 0) return nfds;
 
         for (int i = 0; i < nfds; ++i) {
+            if (ep_events[i].data.ptr == nullptr) {
+                if (wake_fd >= 0) {
+                    uint64_t val = 0;
+                    ssize_t s = read(wake_fd, &val, sizeof(val));
+                    (void)s;
+                }
+                continue;
+            }
+
             auto* dev = static_cast<GrabbedDevice*>(ep_events[i].data.ptr);
             if (!dev || dev->fd < 0) continue;
 
@@ -180,6 +211,15 @@ public:
         if (nfds <= 0) return nfds;
 
         for (int i = 0; i < nfds; ++i) {
+            if (ep_events[i].data.ptr == nullptr) {
+                if (wake_fd >= 0) {
+                    uint64_t val = 0;
+                    ssize_t s = read(wake_fd, &val, sizeof(val));
+                    (void)s;
+                }
+                continue;
+            }
+
             auto* dev = static_cast<GrabbedDevice*>(ep_events[i].data.ptr);
             if (!dev || dev->fd < 0) continue;
 
