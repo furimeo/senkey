@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ libgtk-3-dev libayatana-appindicator3-dev libglib2.0-dev-bin
+          sudo apt-get install -y cmake g++ libgtk-3-dev libayatana-appindicator3-dev libglib2.0-dev-bin libxkbcommon-dev
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
