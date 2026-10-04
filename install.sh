@@ -147,15 +147,15 @@ pkill -9 -x senkey-gui 2>/dev/null || true
 sleep 1
 
 # Cài đặt tệp thực thi vào /usr/local/bin
+# Cài đặt tệp thực thi vào /usr/local/bin
 echo "--> Cài đặt tệp nhị phân vào /usr/local/bin..."
 install -d /usr/local/bin
 if [ -f "$SRC_DIR/senkey" ]; then
     install -m 755 "$SRC_DIR/senkey" /usr/local/bin/senkey
 fi
 
-if [ -f "$SRC_DIR/senkey-gui" ]; then
-    install -m 755 "$SRC_DIR/senkey-gui" /usr/local/bin/senkey-gui
-fi
+# Dọn dẹp tệp thực thi phân tách cũ nếu có
+rm -f /usr/local/bin/senkey-gui 2>/dev/null || true
 
 # Cài đặt icon vào hệ thống nếu có
 install -d /usr/share/icons/hicolor/48x48/apps
@@ -169,14 +169,14 @@ elif [ -f "$SRC_DIR/icons/senkey-v.png" ]; then
     install -m 644 "$SRC_DIR/icons/senkey-e.png" /usr/share/icons/hicolor/48x48/apps/senkey-e.png
 fi
 
-# Tạo lối tắt ứng dụng .desktop trong Application Menu
+# Tạo lối tắt ứng dụng .desktop trong Application Menu (mở bảng điều khiển GUI)
 install -d /usr/share/applications
 cat << 'EOF' > /usr/share/applications/senkey.desktop
 [Desktop Entry]
 Name=SenKey
 GenericName=Bộ gõ tiếng Việt
 Comment=Bảng điều khiển bộ gõ tiếng Việt SenKey
-Exec=senkey-gui
+Exec=senkey -g
 Icon=senkey
 Terminal=false
 Type=Application
@@ -184,14 +184,14 @@ Categories=Utility;Settings;
 StartupNotify=false
 EOF
 
-# Cấu hình tự khởi động cùng phiên đăng nhập (Autostart Tray)
+# Cấu hình tự khởi động cùng phiên đăng nhập giao diện (Autostart)
 install -d /etc/xdg/autostart
 cat << 'EOF' > /etc/xdg/autostart/senkey.desktop
 [Desktop Entry]
-Name=SenKey Tray
+Name=SenKey
 GenericName=Bộ gõ tiếng Việt
-Comment=Khay hệ thống bộ gõ tiếng Việt SenKey
-Exec=senkey-gui --tray
+Comment=Bộ gõ tiếng Việt SenKey
+Exec=senkey
 Icon=senkey
 Terminal=false
 Type=Application
@@ -200,22 +200,29 @@ StartupNotify=false
 X-GNOME-Autostart-enabled=true
 EOF
 
-# Cấu hình dịch vụ systemd cấp hệ thống (system service)
-cat << 'EOF' > /etc/systemd/system/senkey.service
+# Gỡ bỏ dịch vụ systemd cấp hệ thống cũ nếu có (SenKey giờ chạy trực tiếp trong user desktop session)
+systemctl stop senkey.service 2>/dev/null || true
+systemctl disable senkey.service 2>/dev/null || true
+rm -f /etc/systemd/system/senkey.service 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+
+# Cấu hình dịch vụ systemd cấp người dùng (user service)
+install -d /etc/systemd/user
+cat << 'EOF' > /etc/systemd/user/senkey.service
 [Unit]
 Description=SenKey Vietnamese Input Daemon
 Documentation=https://github.com/furimeo/senkey
-After=network.target
+After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/senkey --service
+ExecStart=/usr/local/bin/senkey
 Restart=always
 RestartSec=2
-Environment="SENKEY_USER=$CURRENT_USER"
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
 
 if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
@@ -226,21 +233,7 @@ if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
     chown -R "$CURRENT_USER:$CURRENT_USER" "$AUTOSTART_DIR" 2>/dev/null || true
 fi
 
-# Tự động kích hoạt và khởi chạy dịch vụ ngay lập tức
-echo "--> Đang tự động kích hoạt và khởi động lại dịch vụ SenKey..."
-systemctl daemon-reload 2>/dev/null || true
-systemctl enable --now senkey.service 2>/dev/null || true
-systemctl restart senkey.service 2>/dev/null || true
-sleep 1
-if [ -e /tmp/senkey-0.sock ]; then
-    chown root:input /tmp/senkey-0.sock 2>/dev/null || true
-    chmod 0660 /tmp/senkey-0.sock 2>/dev/null || true
-    if command -v setfacl >/dev/null 2>&1; then
-        setfacl -m u:"$CURRENT_USER":rw /tmp/senkey-0.sock 2>/dev/null || true
-    fi
-fi
-
-# Tự động khởi chạy giao diện khay hệ thống cho người dùng nếu đang trong phiên đồ họa
+# Tự động khởi chạy SenKey cho người dùng nếu đang trong phiên đồ họa
 if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
     USER_UID=$(id -u "$CURRENT_USER" 2>/dev/null || true)
     USER_RUNTIME="/run/user/$USER_UID"
@@ -248,17 +241,17 @@ if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
     TARGET_WAYLAND="${WAYLAND_DISPLAY}"
     
     if [ -d "$USER_RUNTIME" ]; then
-        echo "--> Đang tự động khởi chạy giao diện khay hệ thống cho $CURRENT_USER..."
-        if command -v systemd-run >/dev/null 2>&1 && sudo -u "$CURRENT_USER" XDG_RUNTIME_DIR="$USER_RUNTIME" systemctl --user is-system-running >/dev/null 2>&1; then
-            sudo -u "$CURRENT_USER" XDG_RUNTIME_DIR="$USER_RUNTIME" \
-                systemd-run --user --unit=senkey-tray /usr/local/bin/senkey-gui --tray 2>/dev/null || true
+        echo "--> Đang tự động khởi chạy SenKey (GUI & Khay hệ thống) cho $CURRENT_USER..."
+        if command -v systemctl >/dev/null 2>&1 && sudo -u "$CURRENT_USER" XDG_RUNTIME_DIR="$USER_RUNTIME" systemctl --user is-system-running >/dev/null 2>&1; then
+            sudo -u "$CURRENT_USER" XDG_RUNTIME_DIR="$USER_RUNTIME" systemctl --user daemon-reload 2>/dev/null || true
+            sudo -u "$CURRENT_USER" XDG_RUNTIME_DIR="$USER_RUNTIME" systemctl --user enable --now senkey.service 2>/dev/null || true
         else
             sudo -u "$CURRENT_USER" \
                 DISPLAY="$TARGET_DISPLAY" \
                 WAYLAND_DISPLAY="$TARGET_WAYLAND" \
                 XDG_RUNTIME_DIR="$USER_RUNTIME" \
                 DBUS_SESSION_BUS_ADDRESS="unix:path=$USER_RUNTIME/bus" \
-                nohup /usr/local/bin/senkey-gui --tray >/dev/null 2>&1 &
+                nohup /usr/local/bin/senkey >/dev/null 2>&1 &
         fi
     fi
 fi
@@ -268,17 +261,11 @@ if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
 fi
 
-if systemctl is-active --quiet senkey.service; then
-    STATUS_TEXT="Đang chạy (Active / Running)"
-else
-    STATUS_TEXT="Đã kích hoạt"
-fi
-
 echo "=========================================================="
 echo " SenKey đã được cài đặt và kích hoạt thành công!"
-echo " - Trạng thái dịch vụ nền: $STATUS_TEXT"
-echo " - Tệp nhị phân: /usr/local/bin/senkey, /usr/local/bin/senkey-gui"
-echo " - Khay hệ thống (Tray): Tự động nạp cùng Desktop session"
-echo " - Bảng điều khiển: Gõ 'senkey' hoặc mở từ Application Menu"
-echo " - Kiểm tra trạng thái: senkey --status"
+echo " - Tệp nhị phân duy nhất: /usr/local/bin/senkey (Tích hợp GUI & Tray)"
+echo " - Khay hệ thống (Tray): Tự động nạp cùng phiên Desktop"
+echo " - Bảng điều khiển GUI: Gõ 'senkey' hoặc mở từ Application Menu"
+echo " - Chuyển chế độ [V]/[E]: senkey -t (hoặc phím tắt Ctrl+Shift / Alt+Z)"
+echo " - Kiểm tra trạng thái: senkey -s"
 echo "=========================================================="

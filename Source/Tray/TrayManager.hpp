@@ -29,6 +29,7 @@ public:
     void toggle_mode();
     void set_mode(bool vi_mode);
     bool get_mode() const { return is_vietnamese_mode; }
+    void set_visible(bool visible) { tray_backend.set_visible(visible); }
 
     void show_panel();
     void quit_application();

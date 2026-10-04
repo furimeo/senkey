@@ -31,6 +31,7 @@ AdvancedSection::AdvancedSection() {
     gtk_box_pack_start(GTK_BOX(box), check_row(&chk_free,   "text_replace.png", "Cho phép gõ tự do"),          FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), check_row(&chk_spell,  "accept.png",        "Bật kiểm tra chính tả"),     FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), check_row(&chk_macro,  "script.png",        "Bật gõ tắt (Macro)"),        FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), check_row(&chk_tray,   "world.png",         "Hiện biểu tượng khay hệ thống (Tray)"), FALSE, FALSE, 0);
 
     GtkWidget* pacing = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_box_pack_start(GTK_BOX(pacing), silk_image("cog.png"), FALSE, FALSE, 0);
@@ -45,6 +46,7 @@ void AdvancedSection::load(const SenKeyConfig& cfg) {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk_free),   cfg.free_marking);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk_spell),  cfg.spell_check);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk_macro),  cfg.macro_enabled);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk_tray),   cfg.show_tray);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(spin_delay), cfg.micro_delay_us);
 }
 
@@ -53,6 +55,7 @@ void AdvancedSection::apply(SenKeyConfig& cfg) {
     cfg.free_marking    = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(chk_free));
     cfg.spell_check     = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(chk_spell));
     cfg.macro_enabled   = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(chk_macro));
+    cfg.show_tray       = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(chk_tray));
     cfg.micro_delay_us  = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(spin_delay));
 }
 

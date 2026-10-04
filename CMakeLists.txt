@@ -86,55 +86,29 @@ else()
     message(STATUS "X11 not found. Operating in pure Wayland/headless independent mode.")
 endif()
 
-# SenKey daemon shared core library
-set(SENKEY_CORE_SOURCES
-    Source/Config.cpp
-    Source/EngineWrapper.cpp
-    Source/Hotplug.cpp
-    Source/Ipc.cpp
-    Source/Logger.cpp
-    Source/Macro.cpp
-)
-
-if(X11_FOUND)
-    list(APPEND SENKEY_CORE_SOURCES Source/Clipboard/ClipboardBridge.cpp)
+# Optional Wayland client (zwp_virtual_keyboard_v1 protocol)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(WAYLAND_CLIENT QUIET wayland-client)
+    if(WAYLAND_CLIENT_FOUND)
+        message(STATUS "wayland-client found. Enabling Wayland zwp_virtual_keyboard_v1 backend.")
+        add_compile_definitions(HAVE_WAYLAND=1)
+    else()
+        message(STATUS "wayland-client not found. Wayland virtual keyboard backend disabled.")
+    endif()
 endif()
 
-add_library(SenKeyCoreLib STATIC ${SENKEY_CORE_SOURCES})
-target_include_directories(SenKeyCoreLib PUBLIC Source Source/Pipeline Source/Input Source/Output UniKeyCore)
-if(XKBCOMMON_FOUND)
-    target_include_directories(SenKeyCoreLib PUBLIC ${XKBCOMMON_INCLUDE_DIRS})
-    target_link_libraries(SenKeyCoreLib PUBLIC ${XKBCOMMON_LIBRARIES})
-endif()
-if(X11_FOUND)
-    target_include_directories(SenKeyCoreLib PUBLIC Source/Clipboard ${X11_INCLUDE_DIR})
-    target_link_libraries(SenKeyCoreLib PUBLIC ${X11_LIBRARIES})
-endif()
-target_link_libraries(SenKeyCoreLib PUBLIC UniKeyCore pthread)
-
-# Main Daemon Binary
-add_executable(senkey Source/Main.cpp)
-target_link_libraries(senkey PRIVATE SenKeyCoreLib UniKeyCore pthread)
-if(XKBCOMMON_FOUND)
-    target_link_libraries(senkey PRIVATE ${XKBCOMMON_LIBRARIES})
-endif()
-if(X11_FOUND)
-    target_link_libraries(senkey PRIVATE ${X11_LIBRARIES})
-endif()
-
-# GUI Binary (requires GTK3)
+# GUI and Tray support (requires GTK3)
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(GTK3 QUIET gtk+-3.0)
 endif()
 
 if(GTK3_FOUND)
-    # Compile GResource (icons embedded into binary)
-    find_program(GLIB_COMPILE_RESOURCES glib-compile-resources REQUIRED)
+    message(STATUS "GTK3 found. Integrated GUI and System Tray enabled.")
+    add_compile_definitions(HAVE_GTK3=1)
 
+    find_program(GLIB_COMPILE_RESOURCES glib-compile-resources REQUIRED)
     set(GRESOURCE_XML "${CMAKE_SOURCE_DIR}/icons/senkey.gresource.xml")
     set(GRESOURCE_C  "${CMAKE_BINARY_DIR}/SenkeyResources.c")
-
-    # Collect all icon files so CMake knows when to re-run
     file(GLOB ICON_FILES "${CMAKE_SOURCE_DIR}/icons/*.png")
 
     add_custom_command(
@@ -160,28 +134,71 @@ if(GTK3_FOUND)
         Source/Tray/TrayBackend.cpp
         Source/Tray/TrayMenu.cpp
         Source/Tray/TrayManager.cpp
-        Source/GUI/MainGui.cpp
     )
-
-    add_executable(senkey-gui ${SENKEY_GUI_SOURCES})
-    target_include_directories(senkey-gui PRIVATE
-        Source
-        Source/GUI
-        Source/Tray
-        UniKeyCore
-        ${GTK3_INCLUDE_DIRS}
-    )
-    target_compile_options(senkey-gui PRIVATE ${GTK3_CFLAGS_OTHER})
-    target_link_libraries(senkey-gui PRIVATE
-        SenKeyCoreLib
-        ${GTK3_LIBRARIES}
-        ${CMAKE_DL_LIBS}
-        pthread
-    )
-
-    message(STATUS "GTK3 found. Target 'senkey-gui' enabled (AppIndicator dynamic loading via dlopen).")
 else()
-    message(WARNING "GTK3 not found. Target 'senkey-gui' will not be built.")
+    message(WARNING "GTK3 not found. SenKey will be built without graphical interface.")
+endif()
+
+# SenKey daemon shared core library
+set(SENKEY_CORE_SOURCES
+    Source/Config.cpp
+    Source/EngineWrapper.cpp
+    Source/Hotplug.cpp
+    Source/Ipc.cpp
+    Source/Logger.cpp
+    Source/Macro.cpp
+    Source/Output/Wayland/WlrVirtualKeyboardBackend.cpp
+)
+
+if(GTK3_FOUND)
+    list(APPEND SENKEY_CORE_SOURCES ${SENKEY_GUI_SOURCES})
+endif()
+
+if(WAYLAND_CLIENT_FOUND)
+    list(APPEND SENKEY_CORE_SOURCES Source/Output/Wayland/virtual-keyboard-unstable-v1-protocol.c)
+endif()
+
+if(X11_FOUND)
+    list(APPEND SENKEY_CORE_SOURCES Source/Clipboard/ClipboardBridge.cpp)
+endif()
+
+add_library(SenKeyCoreLib STATIC ${SENKEY_CORE_SOURCES})
+target_include_directories(SenKeyCoreLib PUBLIC Source Source/Pipeline Source/Input Source/Output UniKeyCore)
+if(GTK3_FOUND)
+    target_include_directories(SenKeyCoreLib PUBLIC Source/GUI Source/Tray ${GTK3_INCLUDE_DIRS})
+    target_compile_options(SenKeyCoreLib PUBLIC ${GTK3_CFLAGS_OTHER})
+    target_link_libraries(SenKeyCoreLib PUBLIC ${GTK3_LIBRARIES} ${CMAKE_DL_LIBS})
+endif()
+if(XKBCOMMON_FOUND)
+    target_include_directories(SenKeyCoreLib PUBLIC ${XKBCOMMON_INCLUDE_DIRS})
+    target_link_libraries(SenKeyCoreLib PUBLIC ${XKBCOMMON_LIBRARIES})
+endif()
+if(X11_FOUND)
+    target_include_directories(SenKeyCoreLib PUBLIC Source/Clipboard ${X11_INCLUDE_DIR})
+    target_link_libraries(SenKeyCoreLib PUBLIC ${X11_LIBRARIES})
+endif()
+if(WAYLAND_CLIENT_FOUND)
+    target_include_directories(SenKeyCoreLib PUBLIC ${WAYLAND_CLIENT_INCLUDE_DIRS})
+    target_link_libraries(SenKeyCoreLib PUBLIC ${WAYLAND_CLIENT_LIBRARIES})
+endif()
+target_link_libraries(SenKeyCoreLib PUBLIC UniKeyCore pthread)
+
+# Single Unified SenKey Binary
+add_executable(senkey Source/Main.cpp)
+target_link_libraries(senkey PRIVATE SenKeyCoreLib UniKeyCore pthread)
+if(GTK3_FOUND)
+    target_include_directories(senkey PRIVATE Source/GUI Source/Tray ${GTK3_INCLUDE_DIRS})
+    target_compile_options(senkey PRIVATE ${GTK3_CFLAGS_OTHER})
+    target_link_libraries(senkey PRIVATE ${GTK3_LIBRARIES} ${CMAKE_DL_LIBS})
+endif()
+if(XKBCOMMON_FOUND)
+    target_link_libraries(senkey PRIVATE ${XKBCOMMON_LIBRARIES})
+endif()
+if(X11_FOUND)
+    target_link_libraries(senkey PRIVATE ${X11_LIBRARIES})
+endif()
+if(WAYLAND_CLIENT_FOUND)
+    target_link_libraries(senkey PRIVATE ${WAYLAND_CLIENT_LIBRARIES})
 endif()
 
 # Tests
@@ -192,6 +209,3 @@ endif()
 
 # Installation rules
 install(TARGETS senkey DESTINATION bin)
-if(TARGET senkey-gui)
-    install(TARGETS senkey-gui DESTINATION bin)
-endif()

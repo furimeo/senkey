@@ -14,6 +14,7 @@ private:
     GtkWidget* chk_free;
     GtkWidget* chk_spell;
     GtkWidget* chk_macro;
+    GtkWidget* chk_tray;
     GtkWidget* spin_delay;
 
 public:

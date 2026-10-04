@@ -9,7 +9,8 @@ Kiến trúc luồng xử lý kênh đơn FIFO tầng nhân kết hợp giữa `
 - Trình biên dịch C++17 (`g++` hoặc `clang++`)
 - `cmake` (phiên bản >= 3.16)
 - `libxkbcommon-dev` (khuyến nghị: giải mã layout bàn phím đa quốc gia QWERTY/AZERTY/QWERTZ)
-- Thư viện giao diện (tùy chọn cho bảng điều khiển `senkey-gui`): `libgtk-3-dev`, `libglib2.0-dev-bin`
+- Thư viện giao diện GTK3 & Tray: `libgtk-3-dev`, `libayatana-appindicator3-dev` (hoặc `libappindicator3-dev`), `libglib2.0-dev-bin`
+- Thư viện Wayland client (tùy chọn): `libwayland-dev` (kích hoạt backend Wayland `zwp_virtual_keyboard_v1` Level 0 Native Injection)
 
 ## Hướng dẫn biên dịch
 
@@ -24,9 +25,8 @@ Hoặc sử dụng Makefile viết sẵn:
 make
 ```
 
-Các tệp thực thi đầu ra:
-- `senkey` (tiến trình nền daemon xử lý gõ phím)
-- `senkey-gui` (bảng điều khiển đồ họa GTK3)
+Tệp thực thi đầu ra:
+- `senkey`: Tệp nhị phân duy nhất tích hợp toàn bộ lõi daemon bắt phím evdev, bộ phát uinput / Wayland `zwp_virtual_keyboard_v1`, khay hệ thống System Tray và bảng điều khiển đồ họa GTK3.
 
 ## Kiểm thử & Xác minh bộ nhớ
 
@@ -58,22 +58,20 @@ sudo ./install.sh update
 ```
 
 Quá trình cài đặt sẽ thiết lập:
-- Tệp thực thi tại `/usr/local/bin/senkey` và `/usr/local/bin/senkey-gui`
-- Lối tắt ứng dụng tại `/usr/share/applications/senkey.desktop`
+- Tệp thực thi duy nhất tại `/usr/local/bin/senkey`
+- Lối tắt ứng dụng tại `/usr/share/applications/senkey.desktop` (mở bảng điều khiển)
+- Tự khởi động cùng phiên đồ họa tại `/etc/xdg/autostart/senkey.desktop`
 - Biểu tượng ứng dụng tại `/usr/share/icons/hicolor/48x48/apps/`
-- Quy tắc cấp quyền uinput tại `/etc/udev/rules.d/99-uinput.rules`
-- Dịch vụ hệ thống systemd tại `/etc/systemd/system/senkey.service`
+- Quy tắc cấp quyền thiết bị uinput tại `/etc/udev/rules.d/99-uinput.rules`
+- Dịch vụ người dùng systemd tại `/etc/systemd/user/senkey.service`
 
 ## Hướng dẫn sử dụng
 
 ```bash
-# Chạy trực tiếp ở chế độ dòng lệnh
+# Chạy bộ gõ (tự động thường trú khay hệ thống System Tray)
 senkey
 
-# Chạy dưới dạng tiến trình nền daemon
-senkey -d
-
-# Mở bảng điều khiển giao diện đồ họa
+# Mở bảng điều khiển giao diện đồ họa (kích hoạt ngay lập tức nếu đang chạy)
 senkey -g
 
 # Chuyển đổi qua lại giữa chế độ Tiếng Việt [V] và Tiếng Anh [E]
@@ -82,7 +80,13 @@ senkey -t
 # Kiểm tra trạng thái hoạt động hiện tại
 senkey -s
 
-# Dừng tiến trình daemon đang chạy
+# Tải lại cấu hình và bảng gõ tắt
+senkey -r
+
+# Chạy không hiển thị khay hệ thống
+senkey --no-tray
+
+# Dừng tiến trình SenKey đang chạy
 senkey -q
 ```
 
@@ -135,6 +139,7 @@ Tệp định nghĩa từ gõ tắt: `~/.config/senkey/macro.txt` (định dạn
 │   ├── Types.hpp               # Định nghĩa kiểu dữ liệu và cấu trúc chung
 │   ├── Input/                  # Tầng giải mã bàn phím nâng cao (XkbState qua libxkbcommon)
 │   ├── Output/                 # Tầng trừu tượng xuất phím (OutputBackend, uinput, wayland/x11)
+│   │   └── Wayland/            # Backend Wayland zwp_virtual_keyboard_v1 Level 0 Native Injection
 │   ├── Pipeline/               # Hàng đợi sự kiện đa luồng phi đồng bộ (EventQueue)
 │   ├── GUI/                    # Giao diện đồ họa bảng điều khiển GTK3
 │   │   ├── AboutDialog.hpp / .cpp      # Hộp thoại thông tin tác giả và bản quyền
@@ -142,8 +147,7 @@ Tệp định nghĩa từ gõ tắt: `~/.config/senkey/macro.txt` (định dạn
 │   │   ├── BasicSection.hpp / .cpp     # Lưới chọn bảng mã và kiểu gõ cơ bản
 │   │   ├── ButtonBar.hpp / .cpp        # Thanh nút bấm tác vụ
 │   │   ├── MainWindow.hpp / .cpp       # Cửa sổ chính bảng điều khiển
-│   │   ├── SilkIcons.hpp / .cpp        # Bộ nạp biểu tượng nhúng từ GResource
-│   │   └── MainGui.cpp                 # Điểm khởi chạy ứng dụng đồ họa
+│   │   └── SilkIcons.hpp / .cpp        # Bộ nạp biểu tượng nhúng từ GResource
 │   └── Tray/                   # Khay hệ thống (System Tray) và tích hợp Desktop Environment
 │       ├── TrayIcons.hpp / .cpp        # Quản lý và trích xuất biểu tượng khay
 │       ├── TrayBackend.hpp / .cpp      # Kết nối Ayatana AppIndicator và GtkStatusIcon
@@ -154,7 +158,8 @@ Tệp định nghĩa từ gõ tắt: `~/.config/senkey/macro.txt` (định dạn
 │   ├── EngineTest.cpp          # Kiểm thử giải thuật gõ Telex, VNI
 │   ├── PipelineMemoryTest.cpp  # Kiểm thử áp lực và kiểm tra an toàn bộ nhớ
 │   ├── PipelineQueueTest.cpp   # Kiểm thử hàng đợi EventQueue và xkbcommon
-│   └── ClipboardBridgeTest.cpp # Kiểm thử cầu nối Clipboard X11
+│   ├── ClipboardBridgeTest.cpp # Kiểm thử cầu nối Clipboard X11
+│   └── WlrVirtualKeyboardTest.cpp # Kiểm thử Wayland Virtual Keyboard Level 0 Invariance
 ├── UniKeyCore/                 # Lõi thuật toán gõ tiếng Việt UniKey
 │   ├── COPYING                 # Giấy phép LGPL cho lõi UniKey
 │   ├── ukengine.cpp / .h       # Thuật toán xử lý bỏ dấu tiếng Việt

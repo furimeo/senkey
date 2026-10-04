@@ -141,4 +141,13 @@ void TrayBackend::update_icon(bool is_vietnamese) {
     }
 }
 
+void TrayBackend::set_visible(bool visible) {
+    if (indicator && p_set_status) {
+        p_set_status(indicator, visible ? 1 : 0);
+    }
+    if (status_icon) {
+        gtk_status_icon_set_visible(status_icon, visible ? TRUE : FALSE);
+    }
+}
+
 } // namespace senkey

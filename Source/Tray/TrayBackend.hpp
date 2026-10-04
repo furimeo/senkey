@@ -26,6 +26,7 @@ public:
 
     bool init(const std::string& dir, GtkWidget* menu, GtkWidget* secondary_item);
     void update_icon(bool is_vietnamese);
+    void set_visible(bool visible);
 
     void set_on_activate(std::function<void()> cb) { on_activate_cb = cb; }
     void set_on_popup_menu(std::function<void(guint, guint32)> cb) { on_popup_menu_cb = cb; }

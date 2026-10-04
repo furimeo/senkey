@@ -77,6 +77,8 @@ bool ConfigManager::load() {
             config.spell_check = (val == "1" || val == "true" || val == "yes");
         } else if (key == "macro_enabled") {
             config.macro_enabled = (val == "1" || val == "true" || val == "yes");
+        } else if (key == "show_tray") {
+            config.show_tray = (val == "1" || val == "true" || val == "yes");
         } else if (key == "micro_delay_us") {
             int d = std::atoi(val.c_str());
             if (d >= 800 && d <= 10000) {
@@ -106,6 +108,7 @@ bool ConfigManager::save() {
     file << "free_marking=" << (config.free_marking ? "true" : "false") << "\n";
     file << "spell_check=" << (config.spell_check ? "true" : "false") << "\n";
     file << "macro_enabled=" << (config.macro_enabled ? "true" : "false") << "\n";
+    file << "show_tray=" << (config.show_tray ? "true" : "false") << "\n";
     file << "micro_delay_us=" << config.micro_delay_us << "\n";
 
     return true;

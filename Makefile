@@ -4,7 +4,6 @@ all:
 	@cmake -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release
 	@cmake --build $(BUILD_DIR) -j$$(nproc)
 	@cp -f $(BUILD_DIR)/senkey ./senkey
-	@if [ -f $(BUILD_DIR)/senkey-gui ]; then cp -f $(BUILD_DIR)/senkey-gui ./senkey-gui; fi
 
 test:
 	@cmake -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=ON
