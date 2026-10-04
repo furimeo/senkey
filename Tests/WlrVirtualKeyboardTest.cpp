@@ -192,6 +192,49 @@ void test_full_generated_xkb_keymap_invariance() {
     std::cout << "[PASS] Full generated XKB keymap (" << codepoints.size()
               << " symbols) verified 100% invariant under unshifted, Shift, CapsLock, and Shift+CapsLock!\n";
 }
+
+void test_custom_layout_passthrough_invariance() {
+    struct xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    assert(ctx != nullptr);
+
+    std::vector<uint32_t> codepoints;
+    std::unordered_map<uint32_t, uint32_t> cp_to_evdev_key;
+    // Build keymap with French AZERTY base layout
+    std::string xkb = WlrVirtualKeyboardBackend::build_static_xkb_keymap(codepoints, cp_to_evdev_key, "fr");
+    assert(!xkb.empty());
+
+    struct xkb_keymap* km = xkb_keymap_new_from_string(ctx, xkb.c_str(),
+        XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert(km != nullptr);
+
+    struct xkb_state* st = xkb_state_new(km);
+    assert(st != nullptr);
+
+    // In AZERTY (fr):
+    // KEY_Q (evdev 16 -> XKB 24) is 'a'
+    // KEY_A (evdev 30 -> XKB 38) is 'q'
+    char buf[16] = {0};
+    xkb_state_key_get_utf8(st, 24, buf, sizeof(buf)); // KEY_Q in AZERTY
+    assert(std::string(buf) == "a");
+
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, 38, buf, sizeof(buf)); // KEY_A in AZERTY
+    assert(std::string(buf) == "q");
+
+    // Vietnamese Level 0 virtual keys remain completely immutable and unaffected by AZERTY!
+    auto it = cp_to_evdev_key.find(0x00E1); // á
+    assert(it != cp_to_evdev_key.end());
+    uint32_t xkb_kc = it->second + 8;
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, xkb_kc, buf, sizeof(buf));
+    assert(std::string(buf) == "á");
+
+    xkb_state_unref(st);
+    xkb_keymap_unref(km);
+    xkb_context_unref(ctx);
+
+    std::cout << "[PASS] Custom layout (AZERTY fr) passthrough verified ('KEY_Q'->'a', 'KEY_A'->'q') while Vietnamese Level 0 remains 100% immutable!\n";
+}
 #endif
 
 int main() {
@@ -200,6 +243,7 @@ int main() {
 #ifdef HAVE_XKBCOMMON
     test_static_xkb_keymap_invariance();
     test_full_generated_xkb_keymap_invariance();
+    test_custom_layout_passthrough_invariance();
 #endif
     std::cout << "All WlrVirtualKeyboardTest cases passed!\n";
     return 0;

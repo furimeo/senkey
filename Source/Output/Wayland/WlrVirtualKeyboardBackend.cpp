@@ -118,7 +118,8 @@ void WlrVirtualKeyboardBackend::cleanup_wayland() {
 
 std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     std::vector<uint32_t>& out_codepoints,
-    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key) {
+    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key,
+    const std::string& base_layout) {
     std::set<uint32_t> codepoints;
     
     // 1. All printable ASCII characters (32 .. 126)
@@ -140,6 +141,14 @@ std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     // Allocate virtual keys starting at XKB keycode 200 (evdev 192)
     // Private Wayland virtual keyboard device namespace (supports 32-bit keycodes)
     uint32_t start_kc = 200;
+
+    std::string layout = base_layout;
+    if (layout.empty()) {
+        layout = detect_system_layout();
+    }
+    if (layout.empty()) {
+        layout = "us";
+    }
 
     std::string xkb;
     xkb.reserve(65536);
@@ -171,7 +180,7 @@ std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     xkb += "    include \"complete\"\n";
     xkb += "  };\n";
     xkb += "  xkb_symbols {\n";
-    xkb += "    include \"pc+us+inet(evdev)\"\n";
+    xkb += "    include \"pc+" + layout + "+inet(evdev)\"\n";
 
     // All Level 0 symbols use type "IMMUTABLE" consuming Shift and Lock:
     // guarantees 100% modifier desync immunity even under CapsLock!
@@ -309,9 +318,11 @@ namespace senkey {
 
 std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     std::vector<uint32_t>& out_codepoints,
-    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key) {
+    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key,
+    const std::string& base_layout) {
     (void)out_codepoints;
     (void)out_cp_to_evdev_key;
+    (void)base_layout;
     return "";
 }
 

@@ -32,32 +32,7 @@ private:
     std::unordered_map<char, ScancodeShift> reverse_map;
 
     std::string detect_system_layout() {
-        const char* env_layout = std::getenv("XKB_DEFAULT_LAYOUT");
-        if (env_layout && env_layout[0] != '\0') {
-            return env_layout;
-        }
-
-        // Kiểm tra cấu hình bàn phím hệ thống (/etc/default/keyboard)
-        std::ifstream kb_file("/etc/default/keyboard");
-        if (kb_file.is_open()) {
-            std::string line;
-            while (std::getline(kb_file, line)) {
-                if (line.rfind("XKBLAYOUT=", 0) == 0) {
-                    std::string val = line.substr(10);
-                    if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'')) {
-                        val = val.substr(1, val.size() - 2);
-                    }
-                    auto comma = val.find(',');
-                    if (comma != std::string::npos) {
-                        val = val.substr(0, comma);
-                    }
-                    if (!val.empty()) {
-                        return val;
-                    }
-                }
-            }
-        }
-        return "";
+        return senkey::detect_system_layout();
     }
 
     void build_reverse_map() {

@@ -4,6 +4,9 @@
 #pragma once
 #include <linux/input.h>
 #include <cstdint>
+#include <string>
+#include <fstream>
+#include <cstdlib>
 
 namespace senkey {
 
@@ -288,6 +291,60 @@ inline uint32_t utf8_next_codepoint(const char*& ptr, const char* end) {
         return cp;
     }
     return 0;
+}
+
+inline std::string detect_system_layout() {
+    const char* env_layout = std::getenv("XKB_DEFAULT_LAYOUT");
+    if (env_layout && env_layout[0] != '\0') {
+        std::string val(env_layout);
+        auto comma = val.find(',');
+        if (comma != std::string::npos) val = val.substr(0, comma);
+        if (!val.empty()) return val;
+    }
+
+    // 1. Kiểm tra cấu hình bàn phím hệ thống Debian/Ubuntu/Mint (/etc/default/keyboard)
+    std::ifstream kb_file("/etc/default/keyboard");
+    if (kb_file.is_open()) {
+        std::string line;
+        while (std::getline(kb_file, line)) {
+            if (line.rfind("XKBLAYOUT=", 0) == 0) {
+                std::string val = line.substr(10);
+                if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'')) {
+                    val = val.substr(1, val.size() - 2);
+                }
+                auto comma = val.find(',');
+                if (comma != std::string::npos) {
+                    val = val.substr(0, comma);
+                }
+                if (!val.empty()) {
+                    return val;
+                }
+            }
+        }
+    }
+
+    // 2. Kiểm tra cấu hình bàn phím hệ thống Arch/Fedora (/etc/vconsole.conf)
+    std::ifstream vc_file("/etc/vconsole.conf");
+    if (vc_file.is_open()) {
+        std::string line;
+        while (std::getline(vc_file, line)) {
+            if (line.rfind("KEYMAP=", 0) == 0) {
+                std::string val = line.substr(7);
+                if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'')) {
+                    val = val.substr(1, val.size() - 2);
+                }
+                auto comma = val.find(',');
+                if (comma != std::string::npos) {
+                    val = val.substr(0, comma);
+                }
+                if (!val.empty()) {
+                    return val;
+                }
+            }
+        }
+    }
+
+    return "us";
 }
 
 } // namespace senkey

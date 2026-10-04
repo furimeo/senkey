@@ -40,7 +40,8 @@ public:
 
     static std::string build_static_xkb_keymap(
         std::vector<uint32_t>& out_codepoints,
-        std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key);
+        std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key,
+        const std::string& base_layout = "");
 
 #ifdef HAVE_WAYLAND
     void handle_registry_global(struct wl_registry* reg, uint32_t name, const char* interface, uint32_t version);
