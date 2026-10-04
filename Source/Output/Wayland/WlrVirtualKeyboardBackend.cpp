@@ -116,7 +116,9 @@ void WlrVirtualKeyboardBackend::cleanup_wayland() {
     valid = false;
 }
 
-bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
+std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
+    std::vector<uint32_t>& out_codepoints,
+    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key) {
     std::set<uint32_t> codepoints;
     
     // 1. All printable ASCII characters (32 .. 126)
@@ -132,11 +134,11 @@ bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
         }
     }
 
-    std::vector<uint32_t> cp_list(codepoints.begin(), codepoints.end());
-    cp_to_evdev_key.clear();
+    out_codepoints.assign(codepoints.begin(), codepoints.end());
+    out_cp_to_evdev_key.clear();
 
-    // Keycodes in XKB: keycode = evdev + 8
     // Allocate virtual keys starting at XKB keycode 200 (evdev 192)
+    // Private Wayland virtual keyboard device namespace (supports 32-bit keycodes)
     uint32_t start_kc = 200;
 
     std::string xkb;
@@ -145,10 +147,10 @@ bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
     xkb += "  xkb_keycodes {\n";
     xkb += "    include \"evdev+aliases(qwerty)\"\n";
 
-    for (size_t i = 0; i < cp_list.size(); ++i) {
+    for (size_t i = 0; i < out_codepoints.size(); ++i) {
         uint32_t kc = start_kc + i;
         uint32_t evdev_key = kc - 8;
-        cp_to_evdev_key[cp_list[i]] = evdev_key;
+        out_cp_to_evdev_key[out_codepoints[i]] = evdev_key;
         char buf[64];
         std::snprintf(buf, sizeof(buf), "    <V%03zu> = %u;\n", i, kc);
         xkb += buf;
@@ -173,8 +175,8 @@ bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
 
     // All Level 0 symbols use type "IMMUTABLE" consuming Shift and Lock:
     // guarantees 100% modifier desync immunity even under CapsLock!
-    for (size_t i = 0; i < cp_list.size(); ++i) {
-        uint32_t cp = cp_list[i];
+    for (size_t i = 0; i < out_codepoints.size(); ++i) {
+        uint32_t cp = out_codepoints[i];
         char buf[128];
         std::snprintf(buf, sizeof(buf), "    key <V%03zu> { type = \"IMMUTABLE\", symbols[Group1] = [ U%04X ] };\n", i, cp);
         xkb += buf;
@@ -182,6 +184,12 @@ bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
 
     xkb += "  };\n";
     xkb += "};\n";
+    return xkb;
+}
+
+bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
+    std::vector<uint32_t> cp_list;
+    std::string xkb = build_static_xkb_keymap(cp_list, cp_to_evdev_key);
 
     // Allocate anonymous memory file descriptor
     int fd = memfd_create("senkey-xkb", MFD_CLOEXEC);
@@ -298,6 +306,14 @@ void WlrVirtualKeyboardBackend::emit_transaction(const TextTransaction& tx) {
 #else
 
 namespace senkey {
+
+std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
+    std::vector<uint32_t>& out_codepoints,
+    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key) {
+    (void)out_codepoints;
+    (void)out_cp_to_evdev_key;
+    return "";
+}
 
 WlrVirtualKeyboardBackend::WlrVirtualKeyboardBackend() = default;
 WlrVirtualKeyboardBackend::~WlrVirtualKeyboardBackend() = default;

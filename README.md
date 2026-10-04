@@ -1,7 +1,7 @@
 # SenKey
 
 Bộ gõ tiếng Việt độc lập dành cho Linux.  
-Kiến trúc luồng xử lý kênh đơn FIFO tầng nhân kết hợp giữa `evdev` và `uinput`.
+Kiến trúc xử lý tức thì Run-to-Completion kết hợp trực tiếp giữa `evdev` và Wayland Native `zwp_virtual_keyboard_v1` / `uinput`.
 
 ## Yêu cầu hệ thống
 
@@ -140,7 +140,7 @@ Tệp định nghĩa từ gõ tắt: `~/.config/senkey/macro.txt` (định dạn
 │   ├── Input/                  # Tầng giải mã bàn phím nâng cao (XkbState qua libxkbcommon)
 │   ├── Output/                 # Tầng trừu tượng xuất phím (OutputBackend, uinput, wayland/x11)
 │   │   └── Wayland/            # Backend Wayland zwp_virtual_keyboard_v1 Level 0 Native Injection
-│   ├── Pipeline/               # Hàng đợi sự kiện đa luồng phi đồng bộ (EventQueue)
+│   ├── Pipeline/               # Điều phối lệnh IPC an toàn đa luồng (IpcCommandQueue)
 │   ├── GUI/                    # Giao diện đồ họa bảng điều khiển GTK3
 │   │   ├── AboutDialog.hpp / .cpp      # Hộp thoại thông tin tác giả và bản quyền
 │   │   ├── AdvancedSection.hpp / .cpp  # Khung tùy chọn cài đặt mở rộng

@@ -33,7 +33,6 @@
 #include "MouseWatcher.hpp"
 #include "EngineWrapper.hpp"
 #include "Ipc.hpp"
-#include "Pipeline/EventQueue.hpp"
 #include "Pipeline/IpcCommandQueue.hpp"
 #include "Input/XkbState.hpp"
 #include "Output/Wayland/WlrVirtualKeyboardBackend.hpp"
@@ -285,19 +284,8 @@ int main(int argc, char* argv[]) {
         return "ERR";
     });
 
-    EventQueue event_queue;
-
-    std::thread emitter_worker([&event_queue, &emitter]() {
-        OutputAction action;
-        while (event_queue.pop(action)) {
-            if (action.type == ActionType::PASSTHROUGH) {
-                emitter->emit_passthrough(action.raw_event);
-            } else if (action.type == ActionType::REPLACEMENT) {
-                emitter->emit_replacement(action.backs, action.replacement, action.mod);
-            }
-        }
-    });
-
+    // Run-to-completion input worker: reads physical evdev events, transforms via UniKeyCore,
+    // and directly synthesizes output via OutputBackend with zero queuing latency and zero packet dropping.
     std::thread input_worker([&]() {
         ModifierState mod;
         mod.capslock = grabber.is_capslock_on();
@@ -381,7 +369,7 @@ int main(int argc, char* argv[]) {
                 int dev_id = key_ev.device_id;
 
                 if (ev.type != EV_KEY) {
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                     continue;
                 }
 
@@ -441,35 +429,35 @@ int main(int argc, char* argv[]) {
                     if (is_navigation_or_reset(code)) {
                         engine.reset();
                         consumed_keys.clear();
-                        event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                        emitter->emit_passthrough(ev);
                         continue;
                     }
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                     continue;
                 }
 
                 // Key Down (val == 1)
                 if (!g_vietnamese_enabled.load()) {
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                     continue;
                 }
 
                 if (ctrl || alt || mod.super) {
                     engine.reset();
                     consumed_keys.clear();
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                     continue;
                 }
 
                 if (is_navigation_or_reset(code)) {
                     engine.reset();
                     consumed_keys.clear();
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                     continue;
                 }
 
                 if (is_modifier(code)) {
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                     continue;
                 }
 
@@ -477,10 +465,10 @@ int main(int argc, char* argv[]) {
                     int backs = 0;
                     std::string replacement;
                     if (engine.process_backspace(backs, replacement)) {
-                        event_queue.push({ActionType::REPLACEMENT, {}, backs, replacement, mod});
+                        emitter->emit_replacement(backs, replacement, mod);
                         consumed_keys.insert({dev_id, code});
                     } else {
-                        event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                        emitter->emit_passthrough(ev);
                     }
                     continue;
                 }
@@ -489,17 +477,17 @@ int main(int argc, char* argv[]) {
                 if (c == 0) {
                     engine.reset();
                     consumed_keys.clear();
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                     continue;
                 }
 
                 int backs = 0;
                 std::string replacement;
                 if (engine.process_key(c, backs, replacement)) {
-                    event_queue.push({ActionType::REPLACEMENT, {}, backs, replacement, mod});
+                    emitter->emit_replacement(backs, replacement, mod);
                     consumed_keys.insert({dev_id, code});
                 } else {
-                    event_queue.push({ActionType::PASSTHROUGH, ev, 0, "", {}});
+                    emitter->emit_passthrough(ev);
                 }
             }
         }
@@ -521,10 +509,6 @@ int main(int argc, char* argv[]) {
     grabber.wake();
     if (input_worker.joinable()) {
         input_worker.join();
-    }
-    event_queue.stop();
-    if (emitter_worker.joinable()) {
-        emitter_worker.join();
     }
     ipc.stop();
     mouse_watcher.stop();
