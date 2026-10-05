@@ -332,6 +332,73 @@ void test_build_symbols_include_helpers() {
     assert(build_symbols_include("us", "dvorak") == "pc+us(dvorak)+inet(evdev)");
     std::cout << "[PASS] build_symbols_include helper correctly constructs single, multi-layout, and variant symbol directives!\n";
 }
+
+void test_merge_compositor_keymap_with_vietnamese() {
+    struct xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    assert(ctx != nullptr);
+
+    // Simulate a compositor sending its active keymap at runtime (German QWERTZ as Group 0, French AZERTY as Group 1)
+    struct xkb_rule_names names = {};
+    names.layout = "de,fr";
+    names.options = "grp:alt_shift_toggle";
+
+    struct xkb_keymap* comp_km = xkb_keymap_new_from_names(ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert(comp_km != nullptr);
+
+    char* comp_str = xkb_keymap_get_as_string(comp_km, XKB_KEYMAP_FORMAT_TEXT_V1);
+    assert(comp_str != nullptr);
+    std::string comp_xkb(comp_str);
+    free(comp_str);
+    xkb_keymap_unref(comp_km);
+
+    // Merge the compositor keymap with SenKey's Level 0 Vietnamese keys
+    std::unordered_map<uint32_t, uint32_t> cp_to_evdev_key;
+    std::string merged_xkb = WlrVirtualKeyboardBackend::merge_compositor_keymap_with_vietnamese(comp_xkb, cp_to_evdev_key);
+    assert(!merged_xkb.empty());
+
+    // Compile merged keymap
+    struct xkb_keymap* merged_km = xkb_keymap_new_from_string(ctx, merged_xkb.c_str(),
+        XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert(merged_km != nullptr);
+
+    struct xkb_state* st = xkb_state_new(merged_km);
+    assert(st != nullptr);
+
+    // Verify Group 0 (German QWERTZ):
+    // KEY_Y (evdev 21 -> XKB 29) is 'z'
+    char buf[16] = {0};
+    xkb_state_key_get_utf8(st, 29, buf, sizeof(buf));
+    assert(std::string(buf) == "z");
+
+    // Switch to Group 1 (French AZERTY):
+    // KEY_Q (evdev 16 -> XKB 24) is 'a'
+    xkb_state_update_mask(st, 0, 0, 0, 0, 0, 1);
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, 24, buf, sizeof(buf));
+    assert(std::string(buf) == "a");
+
+    // Verify Vietnamese Level 0 immutable glyphs are intact across both groups:
+    auto it = cp_to_evdev_key.find(0x00E1); // á
+    assert(it != cp_to_evdev_key.end());
+    uint32_t xkb_kc = it->second + 8;
+
+    // Check in Group 1
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, xkb_kc, buf, sizeof(buf));
+    assert(std::string(buf) == "á");
+
+    // Check in Group 0
+    xkb_state_update_mask(st, 0, 0, 0, 0, 0, 0);
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, xkb_kc, buf, sizeof(buf));
+    assert(std::string(buf) == "á");
+
+    xkb_state_unref(st);
+    xkb_keymap_unref(merged_km);
+    xkb_context_unref(ctx);
+
+    std::cout << "[PASS] merge_compositor_keymap_with_vietnamese verified with full compositor base passthrough and Level 0 Vietnamese invariance!\n";
+}
 #endif
 
 int main() {
@@ -344,6 +411,7 @@ int main() {
     test_multi_layout_runtime_group_switching();
     test_layout_variant_passthrough();
     test_build_symbols_include_helpers();
+    test_merge_compositor_keymap_with_vietnamese();
 #endif
     std::cout << "All WlrVirtualKeyboardTest cases passed!\n";
     return 0;

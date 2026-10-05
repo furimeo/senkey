@@ -50,6 +50,10 @@ public:
         const std::string& base_layout = "",
         const std::string& base_variant = "");
 
+    static std::string merge_compositor_keymap_with_vietnamese(
+        const std::string& base_xkb,
+        std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key);
+
 #ifdef HAVE_WAYLAND
     void handle_registry_global(struct wl_registry* reg, uint32_t name, const char* interface, uint32_t version);
     void handle_seat_capabilities(struct wl_seat* seat, uint32_t capabilities);

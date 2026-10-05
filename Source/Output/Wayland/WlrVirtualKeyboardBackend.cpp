@@ -99,10 +99,152 @@ void WlrVirtualKeyboardBackend::handle_seat_capabilities(struct wl_seat* s, uint
     }
 }
 
+static size_t find_matching_brace(const std::string& s, size_t open_pos) {
+    if (open_pos >= s.size() || s[open_pos] != '{') return std::string::npos;
+    int depth = 1;
+    bool in_string = false;
+    bool in_line_comment = false;
+    bool in_block_comment = false;
+    for (size_t i = open_pos + 1; i < s.size(); ++i) {
+        char c = s[i];
+        if (in_line_comment) {
+            if (c == '\n') in_line_comment = false;
+            continue;
+        }
+        if (in_block_comment) {
+            if (c == '*' && i + 1 < s.size() && s[i + 1] == '/') {
+                in_block_comment = false;
+                ++i;
+            }
+            continue;
+        }
+        if (in_string) {
+            if (c == '\\') { ++i; continue; }
+            if (c == '"') in_string = false;
+            continue;
+        }
+        if (c == '"') { in_string = true; continue; }
+        if (c == '/' && i + 1 < s.size()) {
+            if (s[i + 1] == '/') { in_line_comment = true; ++i; continue; }
+            if (s[i + 1] == '*') { in_block_comment = true; ++i; continue; }
+        }
+        if (c == '{') depth++;
+        else if (c == '}') {
+            depth--;
+            if (depth == 0) return i;
+        }
+    }
+    return std::string::npos;
+}
+
+std::string WlrVirtualKeyboardBackend::merge_compositor_keymap_with_vietnamese(
+    const std::string& base_xkb,
+    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key) {
+
+    std::vector<uint32_t> codepoints;
+    std::set<uint32_t> cp_set;
+    for (uint32_t c = 32; c <= 126; ++c) cp_set.insert(c);
+    for (int i = 0; i < TOTAL_VNCHARS; ++i) {
+        if (UnicodeTable[i] > 127) cp_set.insert(UnicodeTable[i]);
+    }
+    codepoints.assign(cp_set.begin(), cp_set.end());
+
+    out_cp_to_evdev_key.clear();
+    uint32_t start_kc = 200;
+
+    std::string kc_inject = "\n";
+    for (size_t i = 0; i < codepoints.size(); ++i) {
+        uint32_t kc = start_kc + i;
+        uint32_t evdev_key = kc - 8;
+        out_cp_to_evdev_key[codepoints[i]] = evdev_key;
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "\t<V%03zu> = %u;\n", i, kc);
+        kc_inject += buf;
+    }
+
+    std::string types_inject =
+        "\n\ttype \"IMMUTABLE\" {\n"
+        "\t\tmodifiers = Shift + Lock;\n"
+        "\t\tmap[Shift] = Level1;\n"
+        "\t\tmap[Lock] = Level1;\n"
+        "\t\tmap[Shift+Lock] = Level1;\n"
+        "\t\tlevel_name[Level1] = \"Base\";\n"
+        "\t};\n";
+
+    std::string sym_inject = "\n";
+    for (size_t i = 0; i < codepoints.size(); ++i) {
+        uint32_t cp = codepoints[i];
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "\tkey <V%03zu> { type = \"IMMUTABLE\", [ U%04X ] };\n", i, cp);
+        sym_inject += buf;
+    }
+
+    size_t pos_kc = base_xkb.find("xkb_keycodes");
+    if (pos_kc == std::string::npos) return "";
+    size_t open_kc = base_xkb.find('{', pos_kc);
+    if (open_kc == std::string::npos) return "";
+    size_t close_kc = find_matching_brace(base_xkb, open_kc);
+    if (close_kc == std::string::npos) return "";
+
+    size_t pos_types = base_xkb.find("xkb_types", close_kc);
+    if (pos_types == std::string::npos) return "";
+    size_t open_types = base_xkb.find('{', pos_types);
+    if (open_types == std::string::npos) return "";
+    size_t close_types = find_matching_brace(base_xkb, open_types);
+    if (close_types == std::string::npos) return "";
+
+    size_t pos_symbols = base_xkb.find("xkb_symbols", close_types);
+    if (pos_symbols == std::string::npos) return "";
+    size_t open_symbols = base_xkb.find('{', pos_symbols);
+    if (open_symbols == std::string::npos) return "";
+    size_t close_symbols = find_matching_brace(base_xkb, open_symbols);
+    if (close_symbols == std::string::npos) return "";
+
+    std::string merged;
+    merged.reserve(base_xkb.size() + 32768);
+
+    merged.append(base_xkb, 0, close_kc);
+    merged.append(kc_inject);
+    merged.append(base_xkb, close_kc, close_types - close_kc);
+    merged.append(types_inject);
+    merged.append(base_xkb, close_types, close_symbols - close_types);
+    merged.append(sym_inject);
+    merged.append(base_xkb, close_symbols, base_xkb.size() - close_symbols);
+
+    return merged;
+}
+
 void WlrVirtualKeyboardBackend::handle_compositor_keymap(const std::string& keymap_str) {
     compositor_keymap_str = keymap_str;
     Logger::info("WlrVirtualKeyboardBackend: Compositor keymap synchronized (" +
                  std::to_string(keymap_str.size()) + " bytes)");
+
+    // 1. Merge live compositor keymap with SenKey Level 0 Vietnamese glyphs and re-upload to virtual keyboard
+    if (keyboard && !keymap_str.empty()) {
+        std::unordered_map<uint32_t, uint32_t> new_cp_map;
+        std::string merged_xkb = merge_compositor_keymap_with_vietnamese(keymap_str, new_cp_map);
+        if (!merged_xkb.empty()) {
+            int fd = memfd_create("senkey-xkb", MFD_CLOEXEC);
+            if (fd < 0) {
+                char tmp_path[] = "/tmp/senkey-xkb-XXXXXX";
+                fd = mkstemp(tmp_path);
+                if (fd >= 0) unlink(tmp_path);
+            }
+            if (fd >= 0) {
+                size_t keymap_size = merged_xkb.size() + 1;
+                ssize_t written = write(fd, merged_xkb.c_str(), keymap_size);
+                if (written == static_cast<ssize_t>(keymap_size)) {
+                    zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, static_cast<uint32_t>(keymap_size));
+                    wl_display_roundtrip(display);
+                    cp_to_evdev_key = std::move(new_cp_map);
+                    Logger::info("WlrVirtualKeyboardBackend: Uploaded live merged keymap to virtual keyboard successfully");
+                }
+                close(fd);
+            }
+        }
+    }
+
+    // 2. Notify XkbState to reload its state machine
     if (on_keymap_change_cb) {
         on_keymap_change_cb(keymap_str);
     }
@@ -304,8 +446,14 @@ std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
 }
 
 bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
-    std::vector<uint32_t> cp_list;
-    std::string xkb = build_static_xkb_keymap(cp_list, cp_to_evdev_key);
+    std::string xkb;
+    if (!compositor_keymap_str.empty()) {
+        xkb = merge_compositor_keymap_with_vietnamese(compositor_keymap_str, cp_to_evdev_key);
+    }
+    if (xkb.empty()) {
+        std::vector<uint32_t> cp_list;
+        xkb = build_static_xkb_keymap(cp_list, cp_to_evdev_key);
+    }
 
     // Allocate anonymous memory file descriptor
     int fd = memfd_create("senkey-xkb", MFD_CLOEXEC);
@@ -335,7 +483,7 @@ bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
     close(fd);
 
     Logger::info("WlrVirtualKeyboardBackend: Uploaded static Level 0 keymap (" + 
-                 std::to_string(cp_list.size()) + " symbols) successfully.");
+                 std::to_string(cp_to_evdev_key.size()) + " symbols) successfully.");
     return true;
 }
 
@@ -439,6 +587,14 @@ std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     (void)out_cp_to_evdev_key;
     (void)base_layout;
     (void)base_variant;
+    return "";
+}
+
+std::string WlrVirtualKeyboardBackend::merge_compositor_keymap_with_vietnamese(
+    const std::string& base_xkb,
+    std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key) {
+    (void)base_xkb;
+    (void)out_cp_to_evdev_key;
     return "";
 }
 
