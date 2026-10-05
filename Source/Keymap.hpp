@@ -5,8 +5,21 @@
 #include <linux/input.h>
 #include <cstdint>
 #include <string>
+#include <vector>
+#include <sstream>
 #include <fstream>
 #include <cstdlib>
+
+#if defined(HAVE_X11)
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#undef None
+#undef Status
+#undef Bool
+#undef Success
+#undef True
+#undef False
+#endif
 
 namespace senkey {
 
@@ -293,58 +306,214 @@ inline uint32_t utf8_next_codepoint(const char*& ptr, const char* end) {
     return 0;
 }
 
-inline std::string detect_system_layout() {
+struct XkbConfig {
+    std::string layout = "us";
+    std::string variant = "";
+    std::string options = "";
+    std::string model = "pc105";
+};
+
+inline XkbConfig detect_system_layout_info() {
+    XkbConfig info;
+    info.layout = "";
+
+    // 1. Biến môi trường XKB_DEFAULT_* (Ưu tiên cao nhất từ môi trường chạy)
     const char* env_layout = std::getenv("XKB_DEFAULT_LAYOUT");
+    const char* env_variant = std::getenv("XKB_DEFAULT_VARIANT");
+    const char* env_options = std::getenv("XKB_DEFAULT_OPTIONS");
+    const char* env_model = std::getenv("XKB_DEFAULT_MODEL");
+
     if (env_layout && env_layout[0] != '\0') {
-        std::string val(env_layout);
-        auto comma = val.find(',');
-        if (comma != std::string::npos) val = val.substr(0, comma);
-        if (!val.empty()) return val;
+        info.layout = env_layout;
+        if (env_variant && env_variant[0] != '\0') info.variant = env_variant;
+        if (env_options && env_options[0] != '\0') info.options = env_options;
+        if (env_model && env_model[0] != '\0') info.model = env_model;
+        return info;
     }
 
-    // 1. Kiểm tra cấu hình bàn phím hệ thống Debian/Ubuntu/Mint (/etc/default/keyboard)
+    // 2. Kiểm tra XKB desktop session hiện tại (X11 root window property _XKB_RULES_NAMES)
+#if defined(HAVE_X11)
+    const char* dpy_name = std::getenv("DISPLAY");
+    if (dpy_name && dpy_name[0] != '\0') {
+        Display* dpy = XOpenDisplay(nullptr);
+        if (dpy) {
+            Atom prop = XInternAtom(dpy, "_XKB_RULES_NAMES", 1);
+            if (prop != 0) {
+                Atom actual_type = 0;
+                int actual_format = 0;
+                unsigned long nitems = 0, bytes_after = 0;
+                unsigned char* prop_data = nullptr;
+                if (XGetWindowProperty(dpy, DefaultRootWindow(dpy), prop, 0, 1024,
+                                       0, XA_STRING, &actual_type, &actual_format,
+                                       &nitems, &bytes_after, &prop_data) == 0 && prop_data) {
+                    const char* p = reinterpret_cast<const char*>(prop_data);
+                    const char* end = p + nitems;
+                    std::vector<std::string> parts;
+                    while (p < end) {
+                        parts.emplace_back(p);
+                        p += parts.back().size() + 1;
+                    }
+                    XFree(prop_data);
+                    // Format: rules\0model\0layout\0variant\0options\0
+                    if (parts.size() >= 3 && !parts[2].empty()) {
+                        info.layout = parts[2];
+                        if (parts.size() >= 4) info.variant = parts[3];
+                        if (parts.size() >= 5) info.options = parts[4];
+                        if (parts.size() >= 2 && !parts[1].empty()) info.model = parts[1];
+                        XCloseDisplay(dpy);
+                        return info;
+                    }
+                }
+            }
+            XCloseDisplay(dpy);
+        }
+    }
+#endif
+
+    auto strip_val = [](std::string s) -> std::string {
+        while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.erase(0, 1);
+        while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) s.pop_back();
+        if (s.size() >= 2 && ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\''))) {
+            s = s.substr(1, s.size() - 2);
+        }
+        return s;
+    };
+
+    // 3. Kiểm tra cấu hình bàn phím hệ thống Debian/Ubuntu/Mint (/etc/default/keyboard)
     std::ifstream kb_file("/etc/default/keyboard");
     if (kb_file.is_open()) {
         std::string line;
         while (std::getline(kb_file, line)) {
             if (line.rfind("XKBLAYOUT=", 0) == 0) {
-                std::string val = line.substr(10);
-                if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'')) {
-                    val = val.substr(1, val.size() - 2);
-                }
-                auto comma = val.find(',');
-                if (comma != std::string::npos) {
-                    val = val.substr(0, comma);
-                }
-                if (!val.empty()) {
-                    return val;
-                }
+                std::string val = strip_val(line.substr(10));
+                if (!val.empty()) info.layout = val;
+            } else if (line.rfind("XKBVARIANT=", 0) == 0) {
+                std::string val = strip_val(line.substr(11));
+                if (!val.empty()) info.variant = val;
+            } else if (line.rfind("XKBOPTIONS=", 0) == 0) {
+                std::string val = strip_val(line.substr(11));
+                if (!val.empty()) info.options = val;
+            } else if (line.rfind("XKBMODEL=", 0) == 0) {
+                std::string val = strip_val(line.substr(9));
+                if (!val.empty()) info.model = val;
             }
         }
+        if (!info.layout.empty()) return info;
     }
 
-    // 2. Kiểm tra cấu hình bàn phím hệ thống Arch/Fedora (/etc/vconsole.conf)
+    // 4. Kiểm tra cấu hình bàn phím hệ thống Arch/Fedora (/etc/vconsole.conf)
+    // CHÚ Ý: CHỈ đọc XKBLAYOUT=, XKBVARIANT=, XKBOPTIONS=, XKBMODEL=.
+    // TUYỆT ĐỐI KHÔNG đọc KEYMAP= vì KEYMAP dùng cho Linux console kbd, không phải XKB layout name!
     std::ifstream vc_file("/etc/vconsole.conf");
     if (vc_file.is_open()) {
         std::string line;
         while (std::getline(vc_file, line)) {
-            if (line.rfind("KEYMAP=", 0) == 0) {
-                std::string val = line.substr(7);
-                if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'')) {
-                    val = val.substr(1, val.size() - 2);
+            if (line.rfind("XKBLAYOUT=", 0) == 0) {
+                std::string val = strip_val(line.substr(10));
+                if (!val.empty()) info.layout = val;
+            } else if (line.rfind("XKBVARIANT=", 0) == 0) {
+                std::string val = strip_val(line.substr(11));
+                if (!val.empty()) info.variant = val;
+            } else if (line.rfind("XKBOPTIONS=", 0) == 0) {
+                std::string val = strip_val(line.substr(11));
+                if (!val.empty()) info.options = val;
+            } else if (line.rfind("XKBMODEL=", 0) == 0) {
+                std::string val = strip_val(line.substr(9));
+                if (!val.empty()) info.model = val;
+            }
+        }
+        if (!info.layout.empty()) return info;
+    }
+
+    // 5. Kiểm tra cấu hình bàn phím hệ thống Arch/Fedora (/etc/X11/xorg.conf.d/00-keyboard.conf do localectl sinh ra)
+    std::ifstream xorg_file("/etc/X11/xorg.conf.d/00-keyboard.conf");
+    if (xorg_file.is_open()) {
+        std::string line;
+        while (std::getline(xorg_file, line)) {
+            auto pos_l = line.find("\"XkbLayout\"");
+            if (pos_l != std::string::npos) {
+                auto q1 = line.find('"', pos_l + 11);
+                if (q1 != std::string::npos) {
+                    auto q2 = line.find('"', q1 + 1);
+                    if (q2 != std::string::npos) {
+                        info.layout = line.substr(q1 + 1, q2 - q1 - 1);
+                    }
                 }
-                auto comma = val.find(',');
-                if (comma != std::string::npos) {
-                    val = val.substr(0, comma);
+            }
+            auto pos_v = line.find("\"XkbVariant\"");
+            if (pos_v != std::string::npos) {
+                auto q1 = line.find('"', pos_v + 12);
+                if (q1 != std::string::npos) {
+                    auto q2 = line.find('"', q1 + 1);
+                    if (q2 != std::string::npos) {
+                        info.variant = line.substr(q1 + 1, q2 - q1 - 1);
+                    }
                 }
-                if (!val.empty()) {
-                    return val;
+            }
+            auto pos_o = line.find("\"XkbOptions\"");
+            if (pos_o != std::string::npos) {
+                auto q1 = line.find('"', pos_o + 12);
+                if (q1 != std::string::npos) {
+                    auto q2 = line.find('"', q1 + 1);
+                    if (q2 != std::string::npos) {
+                        info.options = line.substr(q1 + 1, q2 - q1 - 1);
+                    }
                 }
             }
         }
+        if (!info.layout.empty()) return info;
     }
 
-    return "us";
+    // 6. Fallback mặc định
+    info.layout = "us";
+    return info;
+}
+
+inline std::string detect_system_layout() {
+    return detect_system_layout_info().layout;
+}
+
+inline std::string build_symbols_include(const std::string& layout_str, const std::string& variant_str = "") {
+    if (layout_str.empty()) {
+        return "pc+us+inet(evdev)";
+    }
+    if (layout_str.find('+') != std::string::npos) {
+        return layout_str;
+    }
+
+    std::vector<std::string> layouts;
+    {
+        std::stringstream ss(layout_str);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            if (!item.empty()) layouts.push_back(item);
+        }
+    }
+    if (layouts.empty()) layouts.push_back("us");
+
+    std::vector<std::string> variants;
+    {
+        std::stringstream ss(variant_str);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+            variants.push_back(item);
+        }
+    }
+
+    std::string inc = "pc+";
+    for (size_t i = 0; i < layouts.size(); ++i) {
+        std::string var = (i < variants.size()) ? variants[i] : "";
+        std::string part = layouts[i];
+        if (!var.empty()) {
+            part += "(" + var + ")";
+        }
+        if (i == 0) {
+            inc += part + "+inet(evdev)";
+        } else {
+            inc += "+" + part + ":" + std::to_string(i + 1);
+        }
+    }
+    return inc;
 }
 
 } // namespace senkey

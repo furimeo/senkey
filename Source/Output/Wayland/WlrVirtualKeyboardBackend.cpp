@@ -21,6 +21,103 @@
 
 namespace senkey {
 
+static void seat_keyboard_keymap(void* data, struct wl_keyboard* keyboard,
+                                 uint32_t format, int32_t fd, uint32_t size) {
+    (void)keyboard;
+    auto* self = static_cast<WlrVirtualKeyboardBackend*>(data);
+    if (format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 && fd >= 0 && size > 0) {
+        char* map_shm = static_cast<char*>(mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0));
+        if (map_shm != MAP_FAILED) {
+            std::string km_str(map_shm, size);
+            munmap(map_shm, size);
+            self->handle_compositor_keymap(km_str);
+        }
+    }
+    if (fd >= 0) close(fd);
+}
+
+static void seat_keyboard_enter(void* data, struct wl_keyboard* keyboard,
+                               uint32_t serial, struct wl_surface* surface, struct wl_array* keys) {
+    (void)data; (void)keyboard; (void)serial; (void)surface; (void)keys;
+}
+
+static void seat_keyboard_leave(void* data, struct wl_keyboard* keyboard,
+                               uint32_t serial, struct wl_surface* surface) {
+    (void)data; (void)keyboard; (void)serial; (void)surface;
+}
+
+static void seat_keyboard_key(void* data, struct wl_keyboard* keyboard,
+                             uint32_t serial, uint32_t time, uint32_t key, uint32_t state) {
+    (void)data; (void)keyboard; (void)serial; (void)time; (void)key; (void)state;
+}
+
+static void seat_keyboard_modifiers(void* data, struct wl_keyboard* keyboard,
+                                    uint32_t serial, uint32_t depressed,
+                                    uint32_t latched, uint32_t locked, uint32_t group) {
+    (void)keyboard; (void)serial; (void)depressed; (void)latched; (void)locked;
+    auto* self = static_cast<WlrVirtualKeyboardBackend*>(data);
+    self->handle_compositor_modifiers(group);
+}
+
+static void seat_keyboard_repeat_info(void* data, struct wl_keyboard* keyboard,
+                                     int32_t rate, int32_t delay) {
+    (void)data; (void)keyboard; (void)rate; (void)delay;
+}
+
+static const struct wl_keyboard_listener seat_keyboard_listener = {
+    seat_keyboard_keymap,
+    seat_keyboard_enter,
+    seat_keyboard_leave,
+    seat_keyboard_key,
+    seat_keyboard_modifiers,
+    seat_keyboard_repeat_info,
+};
+
+static void seat_handle_capabilities(void* data, struct wl_seat* seat, uint32_t caps) {
+    auto* self = static_cast<WlrVirtualKeyboardBackend*>(data);
+    self->handle_seat_capabilities(seat, caps);
+}
+
+static void seat_handle_name(void* data, struct wl_seat* seat, const char* name) {
+    (void)data; (void)seat; (void)name;
+}
+
+static const struct wl_seat_listener seat_listener = {
+    seat_handle_capabilities,
+    seat_handle_name,
+};
+
+void WlrVirtualKeyboardBackend::handle_seat_capabilities(struct wl_seat* s, uint32_t caps) {
+    if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !seat_keyboard) {
+        seat_keyboard = wl_seat_get_keyboard(s);
+        if (seat_keyboard) {
+            wl_keyboard_add_listener(seat_keyboard, &seat_keyboard_listener, this);
+        }
+    } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && seat_keyboard) {
+        wl_keyboard_destroy(seat_keyboard);
+        seat_keyboard = nullptr;
+    }
+}
+
+void WlrVirtualKeyboardBackend::handle_compositor_keymap(const std::string& keymap_str) {
+    compositor_keymap_str = keymap_str;
+    Logger::info("WlrVirtualKeyboardBackend: Compositor keymap synchronized (" +
+                 std::to_string(keymap_str.size()) + " bytes)");
+    if (on_keymap_change_cb) {
+        on_keymap_change_cb(keymap_str);
+    }
+}
+
+void WlrVirtualKeyboardBackend::handle_compositor_modifiers(uint32_t group) {
+    if (current_group != group) {
+        current_group = group;
+        Logger::debug("WlrVirtualKeyboardBackend: Active layout group changed to " + std::to_string(group));
+        if (on_group_change_cb) {
+            on_group_change_cb(group);
+        }
+    }
+}
+
 void WlrVirtualKeyboardBackend::handle_registry_global(struct wl_registry* reg,
                                                        uint32_t name, const char* interface,
                                                        uint32_t version) {
@@ -28,6 +125,7 @@ void WlrVirtualKeyboardBackend::handle_registry_global(struct wl_registry* reg,
         if (!seat) {
             seat = static_cast<struct wl_seat*>(
                 wl_registry_bind(reg, name, &wl_seat_interface, version <= 7 ? version : 7));
+            wl_seat_add_listener(seat, &seat_listener, this);
         }
     } else if (std::strcmp(interface, zwp_virtual_keyboard_manager_v1_interface.name) == 0) {
         if (!manager) {
@@ -76,6 +174,9 @@ bool WlrVirtualKeyboardBackend::init_wayland() {
         return false;
     }
 
+    // Roundtrip once more to ensure seat capabilities and seat_keyboard listener are processed
+    wl_display_roundtrip(display);
+
     keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(manager, seat);
     if (!keyboard) {
         Logger::debug("Failed to create zwp_virtual_keyboard_v1 instance");
@@ -93,6 +194,10 @@ bool WlrVirtualKeyboardBackend::init_wayland() {
 }
 
 void WlrVirtualKeyboardBackend::cleanup_wayland() {
+    if (seat_keyboard) {
+        wl_keyboard_destroy(seat_keyboard);
+        seat_keyboard = nullptr;
+    }
     if (keyboard) {
         zwp_virtual_keyboard_v1_destroy(keyboard);
         keyboard = nullptr;
@@ -119,7 +224,8 @@ void WlrVirtualKeyboardBackend::cleanup_wayland() {
 std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     std::vector<uint32_t>& out_codepoints,
     std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key,
-    const std::string& base_layout) {
+    const std::string& base_layout,
+    const std::string& base_variant) {
     std::set<uint32_t> codepoints;
     
     // 1. All printable ASCII characters (32 .. 126)
@@ -142,13 +248,14 @@ std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     // Private Wayland virtual keyboard device namespace (supports 32-bit keycodes)
     uint32_t start_kc = 200;
 
-    std::string layout = base_layout;
-    if (layout.empty()) {
-        layout = detect_system_layout();
-    }
+    XkbConfig cfg = detect_system_layout_info();
+    std::string layout = base_layout.empty() ? cfg.layout : base_layout;
+    std::string variant = base_variant.empty() ? cfg.variant : base_variant;
     if (layout.empty()) {
         layout = "us";
     }
+
+    std::string symbols_include = build_symbols_include(layout, variant);
 
     std::string xkb;
     xkb.reserve(65536);
@@ -180,14 +287,14 @@ std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     xkb += "    include \"complete\"\n";
     xkb += "  };\n";
     xkb += "  xkb_symbols {\n";
-    xkb += "    include \"pc+" + layout + "+inet(evdev)\"\n";
+    xkb += "    include \"" + symbols_include + "\"\n";
 
     // All Level 0 symbols use type "IMMUTABLE" consuming Shift and Lock:
-    // guarantees 100% modifier desync immunity even under CapsLock!
+    // Notice: [ U%04X ] without symbols[Group1] binds to ALL groups (invariant across layout switches)!
     for (size_t i = 0; i < out_codepoints.size(); ++i) {
         uint32_t cp = out_codepoints[i];
         char buf[128];
-        std::snprintf(buf, sizeof(buf), "    key <V%03zu> { type = \"IMMUTABLE\", symbols[Group1] = [ U%04X ] };\n", i, cp);
+        std::snprintf(buf, sizeof(buf), "    key <V%03zu> { type = \"IMMUTABLE\", [ U%04X ] };\n", i, cp);
         xkb += buf;
     }
 
@@ -256,6 +363,9 @@ void WlrVirtualKeyboardBackend::emit_passthrough(const struct input_event& ev) {
     if (!valid || !keyboard) return;
     if (ev.type == EV_KEY) {
         uint32_t state = (ev.value > 0) ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED;
+        if (current_group > 0) {
+            zwp_virtual_keyboard_v1_modifiers(keyboard, 0, 0, 0, current_group);
+        }
         zwp_virtual_keyboard_v1_key(keyboard, 0, ev.code, state);
         wl_display_flush(display);
     }
@@ -264,6 +374,10 @@ void WlrVirtualKeyboardBackend::emit_passthrough(const struct input_event& ev) {
 void WlrVirtualKeyboardBackend::emit_replacement(int backs, const std::string& replacement, const ModifierState& mod) {
     (void)mod;
     if (!valid || !keyboard) return;
+
+    if (current_group > 0) {
+        zwp_virtual_keyboard_v1_modifiers(keyboard, 0, 0, 0, current_group);
+    }
 
     // 1. Batched backspaces
     if (backs > 0) {
@@ -319,10 +433,12 @@ namespace senkey {
 std::string WlrVirtualKeyboardBackend::build_static_xkb_keymap(
     std::vector<uint32_t>& out_codepoints,
     std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key,
-    const std::string& base_layout) {
+    const std::string& base_layout,
+    const std::string& base_variant) {
     (void)out_codepoints;
     (void)out_cp_to_evdev_key;
     (void)base_layout;
+    (void)base_variant;
     return "";
 }
 

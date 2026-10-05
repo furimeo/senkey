@@ -186,6 +186,12 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<OutputBackend> emitter;
 #if defined(HAVE_WAYLAND)
     auto wlr_backend = std::make_unique<WlrVirtualKeyboardBackend>();
+    wlr_backend->set_on_group_change([&xkb_state](uint32_t grp) {
+        xkb_state.set_group(grp);
+    });
+    wlr_backend->set_on_keymap_change([&xkb_state](const std::string& km_str) {
+        xkb_state.reload_keymap_from_string(km_str);
+    });
     if (wlr_backend->open_device("senkey-keyboard")) {
         Logger::info("Output backend: Wayland zwp_virtual_keyboard_v1 (Level 0 Native Unicode)");
         emitter = std::move(wlr_backend);
@@ -375,6 +381,7 @@ int main(int argc, char* argv[]) {
 
                 int code = ev.code;
                 int val = ev.value;
+                xkb_state.update_key(code, val);
 
                 if (code == KEY_LEFTSHIFT)  mod.lshift = (val > 0);
                 if (code == KEY_RIGHTSHIFT) mod.rshift = (val > 0);

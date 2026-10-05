@@ -235,6 +235,103 @@ void test_custom_layout_passthrough_invariance() {
 
     std::cout << "[PASS] Custom layout (AZERTY fr) passthrough verified ('KEY_Q'->'a', 'KEY_A'->'q') while Vietnamese Level 0 remains 100% immutable!\n";
 }
+
+void test_multi_layout_runtime_group_switching() {
+    struct xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    assert(ctx != nullptr);
+
+    std::vector<uint32_t> codepoints;
+    std::unordered_map<uint32_t, uint32_t> cp_to_evdev_key;
+    // Build keymap with multiple layouts: US (Group 0) and FR (Group 1)
+    std::string xkb = WlrVirtualKeyboardBackend::build_static_xkb_keymap(codepoints, cp_to_evdev_key, "us,fr");
+    assert(!xkb.empty());
+
+    struct xkb_keymap* km = xkb_keymap_new_from_string(ctx, xkb.c_str(),
+        XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert(km != nullptr);
+
+    struct xkb_state* st = xkb_state_new(km);
+    assert(st != nullptr);
+
+    // Group 0 (US): KEY_Q (evdev 16 -> XKB 24) is 'q'
+    char buf[16] = {0};
+    xkb_state_key_get_utf8(st, 24, buf, sizeof(buf));
+    assert(std::string(buf) == "q");
+
+    // Switch to Group 1 (FR AZERTY): KEY_Q becomes 'a'
+    xkb_state_update_mask(st, 0, 0, 0, 0, 0, 1);
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, 24, buf, sizeof(buf));
+    assert(std::string(buf) == "a");
+
+    // Vietnamese Level 0 immutable key is invariant across both groups:
+    auto it = cp_to_evdev_key.find(0x00E1); // á
+    assert(it != cp_to_evdev_key.end());
+    uint32_t xkb_kc = it->second + 8;
+
+    // Check in Group 1
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, xkb_kc, buf, sizeof(buf));
+    assert(std::string(buf) == "á");
+
+    // Switch back to Group 0 and check
+    xkb_state_update_mask(st, 0, 0, 0, 0, 0, 0);
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, xkb_kc, buf, sizeof(buf));
+    assert(std::string(buf) == "á");
+
+    xkb_state_unref(st);
+    xkb_keymap_unref(km);
+    xkb_context_unref(ctx);
+
+    std::cout << "[PASS] Multi-layout runtime group switching (US <-> FR) verified with 100% Level 0 Vietnamese invariance!\n";
+}
+
+void test_layout_variant_passthrough() {
+    struct xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    assert(ctx != nullptr);
+
+    std::vector<uint32_t> codepoints;
+    std::unordered_map<uint32_t, uint32_t> cp_to_evdev_key;
+    // Build keymap with US layout, Dvorak variant
+    std::string xkb = WlrVirtualKeyboardBackend::build_static_xkb_keymap(codepoints, cp_to_evdev_key, "us", "dvorak");
+    assert(!xkb.empty());
+
+    struct xkb_keymap* km = xkb_keymap_new_from_string(ctx, xkb.c_str(),
+        XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert(km != nullptr);
+
+    struct xkb_state* st = xkb_state_new(km);
+    assert(st != nullptr);
+
+    // In Dvorak: KEY_Q (evdev 16 -> XKB 24) is '\''
+    char buf[16] = {0};
+    xkb_state_key_get_utf8(st, 24, buf, sizeof(buf));
+    assert(std::string(buf) == "'");
+
+    // Vietnamese Level 0 immutable key remains intact
+    auto it = cp_to_evdev_key.find(0x00E1); // á
+    assert(it != cp_to_evdev_key.end());
+    uint32_t xkb_kc = it->second + 8;
+    buf[0] = '\0';
+    xkb_state_key_get_utf8(st, xkb_kc, buf, sizeof(buf));
+    assert(std::string(buf) == "á");
+
+    xkb_state_unref(st);
+    xkb_keymap_unref(km);
+    xkb_context_unref(ctx);
+
+    std::cout << "[PASS] Layout variant (US Dvorak) passthrough verified with 100% Level 0 Vietnamese invariance!\n";
+}
+
+void test_build_symbols_include_helpers() {
+    assert(build_symbols_include("us") == "pc+us+inet(evdev)");
+    assert(build_symbols_include("fr") == "pc+fr+inet(evdev)");
+    assert(build_symbols_include("us,fr") == "pc+us+inet(evdev)+fr:2");
+    assert(build_symbols_include("us,fr", ",bepo") == "pc+us+inet(evdev)+fr(bepo):2");
+    assert(build_symbols_include("us", "dvorak") == "pc+us(dvorak)+inet(evdev)");
+    std::cout << "[PASS] build_symbols_include helper correctly constructs single, multi-layout, and variant symbol directives!\n";
+}
 #endif
 
 int main() {
@@ -244,6 +341,9 @@ int main() {
     test_static_xkb_keymap_invariance();
     test_full_generated_xkb_keymap_invariance();
     test_custom_layout_passthrough_invariance();
+    test_multi_layout_runtime_group_switching();
+    test_layout_variant_passthrough();
+    test_build_symbols_include_helpers();
 #endif
     std::cout << "All WlrVirtualKeyboardTest cases passed!\n";
     return 0;
