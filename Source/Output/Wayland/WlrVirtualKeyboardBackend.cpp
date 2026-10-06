@@ -271,7 +271,12 @@ bool WlrVirtualKeyboardBackend::handle_compositor_keymap(const std::string& keym
         zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, static_cast<uint32_t>(keymap_size));
         if (display) {
             // Non-blocking flush: send protocol request to compositor without re-entrant roundtrip
-            wl_display_flush(display);
+            if (wl_display_flush(display) < 0 && errno != EAGAIN) {
+                Logger::error("WlrVirtualKeyboardBackend: wl_display_flush failed on keymap submission: " +
+                              std::string(std::strerror(errno)) + ". Rolling back.");
+                close(fd);
+                return false;
+            }
         }
         close(fd);
     }
