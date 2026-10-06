@@ -6,7 +6,10 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <unistd.h>
+#include <sys/eventfd.h>
 #include "Output/Wayland/WlrVirtualKeyboardBackend.hpp"
+#include "Grabber.hpp"
 
 #ifdef HAVE_XKBCOMMON
 #include <xkbcommon/xkbcommon.h>
@@ -399,11 +402,133 @@ void test_merge_compositor_keymap_with_vietnamese() {
 
     std::cout << "[PASS] merge_compositor_keymap_with_vietnamese verified with full compositor base passthrough and Level 0 Vietnamese invariance!\n";
 }
+
+void test_transactional_error_safety() {
+    WlrVirtualKeyboardBackend backend;
+    int callback_count = 0;
+    std::string last_callback_keymap;
+
+    backend.set_on_keymap_change([&](const std::string& km) {
+        callback_count++;
+        last_callback_keymap = km;
+    });
+
+    // 1. Empty keymap must fail gracefully and not trigger callback
+    assert(!backend.handle_compositor_keymap(""));
+    assert(callback_count == 0);
+    assert(backend.get_compositor_keymap().empty());
+    assert(backend.get_codepoint_map().empty());
+
+    // 2. Malformed keymap (not valid XKB syntax) must fail gracefully
+    assert(!backend.handle_compositor_keymap("this is invalid garbage {{{ not xkb"));
+    assert(callback_count == 0);
+    assert(backend.get_compositor_keymap().empty());
+    assert(backend.get_codepoint_map().empty());
+
+    // 3. Incomplete keymap (missing xkb_types or xkb_symbols) must fail gracefully
+    assert(!backend.handle_compositor_keymap("xkb_keymap { xkb_keycodes { <A> = 1; }; };"));
+    assert(callback_count == 0);
+    assert(backend.get_compositor_keymap().empty());
+    assert(backend.get_codepoint_map().empty());
+
+    // 4. Now feed a valid compositor keymap
+    struct xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    assert(ctx != nullptr);
+
+    struct xkb_rule_names names = {};
+    names.layout = "us";
+    struct xkb_keymap* comp_km = xkb_keymap_new_from_names(ctx, &names, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    assert(comp_km != nullptr);
+
+    char* comp_str = xkb_keymap_get_as_string(comp_km, XKB_KEYMAP_FORMAT_TEXT_V1);
+    assert(comp_str != nullptr);
+    std::string valid_comp_xkb(comp_str);
+    free(comp_str);
+    xkb_keymap_unref(comp_km);
+    xkb_context_unref(ctx);
+
+    bool ok = backend.handle_compositor_keymap(valid_comp_xkb);
+    assert(ok);
+    (void)ok;
+    assert(callback_count == 1);
+    assert(last_callback_keymap == valid_comp_xkb);
+    assert(backend.get_compositor_keymap() == valid_comp_xkb);
+    assert(!backend.get_codepoint_map().empty());
+    assert(backend.get_codepoint_map().count(0x00E1) == 1); // 'á' mapped
+    size_t prev_cp_count = backend.get_codepoint_map().size();
+    (void)prev_cp_count;
+
+    // 5. Subsequent malformed input must be rejected and MUST NOT corrupt existing valid state!
+    assert(!backend.handle_compositor_keymap("corrupted junk syntax {{{"));
+    assert(callback_count == 1); // Callback NOT called again
+    assert(backend.get_compositor_keymap() == valid_comp_xkb); // Previous valid keymap preserved
+    assert(backend.get_codepoint_map().size() == prev_cp_count); // Previous mappings preserved
+
+    std::cout << "[PASS] Transactional error safety: rollback on invalid keymaps and state preservation verified!\n";
+}
 #endif
+
+void test_wayland_poll_interface_stubs() {
+    WlrVirtualKeyboardBackend backend;
+    assert(backend.get_poll_fd() == -1);
+    assert(!backend.prepare_read());
+    backend.read_events();
+    backend.cancel_read();
+    assert(backend.dispatch_pending() == 0);
+    std::cout << "[PASS] WlrVirtualKeyboardBackend poll interface stubs verified.\n";
+}
+
+void test_grabber_external_poll_integration() {
+    KeyboardGrabber grabber;
+
+    int efd = eventfd(0, EFD_NONBLOCK);
+    assert(efd >= 0);
+
+    bool before_called = false;
+    bool after_called = false;
+    bool ready_flag = false;
+
+    grabber.set_external_poll(efd,
+        [&]() { before_called = true; },
+        [&](bool ready) {
+            after_called = true;
+            ready_flag = ready;
+        }
+    );
+
+    // Initial wait with no event on efd -> timeout (5ms)
+    std::vector<KeyEvent> events;
+    int count = grabber.wait_events(events, 5);
+    assert(count == 0 || count == -1);
+    (void)count;
+    assert(before_called);
+    assert(after_called);
+    assert(!ready_flag);
+
+    // Write to efd -> must be flagged as ready
+    before_called = false;
+    after_called = false;
+    ready_flag = false;
+    uint64_t val = 1;
+    ssize_t s = write(efd, &val, sizeof(val));
+    assert(s == sizeof(val));
+    (void)s;
+
+    count = grabber.wait_events(events, 50);
+    assert(before_called);
+    assert(after_called);
+    assert(ready_flag); // External FD was ready!
+
+    // Clean up
+    close(efd);
+    std::cout << "[PASS] KeyboardGrabber external poll FD multiplexing and hooks verified!\n";
+}
 
 int main() {
     std::cout << "Running WlrVirtualKeyboardTest...\n";
     test_graceful_fallback_without_wayland();
+    test_wayland_poll_interface_stubs();
+    test_grabber_external_poll_integration();
 #ifdef HAVE_XKBCOMMON
     test_static_xkb_keymap_invariance();
     test_full_generated_xkb_keymap_invariance();
@@ -412,6 +537,7 @@ int main() {
     test_layout_variant_passthrough();
     test_build_symbols_include_helpers();
     test_merge_compositor_keymap_with_vietnamese();
+    test_transactional_error_safety();
 #endif
     std::cout << "All WlrVirtualKeyboardTest cases passed!\n";
     return 0;

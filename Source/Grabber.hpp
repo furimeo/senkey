@@ -13,6 +13,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <functional>
 #include "Logger.hpp"
 
 namespace senkey {
@@ -41,6 +42,10 @@ private:
     std::vector<std::shared_ptr<GrabbedDevice>> devices;
     int epoll_fd = -1;
     int wake_fd = -1;
+    int external_fd = -1;
+    char external_tag = 0;
+    std::function<void()> external_before_wait;
+    std::function<void(bool)> external_after_wait;
 
     static bool test_bit(int nr, const uint8_t* addr) {
         return (addr[nr / 8] & (1 << (nr % 8))) != 0;
@@ -87,9 +92,8 @@ public:
     KeyboardGrabber(const KeyboardGrabber&) = delete;
     KeyboardGrabber& operator=(const KeyboardGrabber&) = delete;
 
-    bool init_and_grab_all() {
-        close_all();
-
+    bool init() {
+        if (epoll_fd >= 0) return true;
         epoll_fd = epoll_create1(0);
         if (epoll_fd < 0) {
             return false;
@@ -102,6 +106,21 @@ public:
             ev.data.ptr = nullptr;
             epoll_ctl(epoll_fd, EPOLL_CTL_ADD, wake_fd, &ev);
         }
+
+        if (external_fd >= 0) {
+            struct epoll_event ev;
+            ev.events = EPOLLIN;
+            ev.data.ptr = &external_tag;
+            epoll_ctl(epoll_fd, EPOLL_CTL_ADD, external_fd, &ev);
+        }
+        return true;
+    }
+
+    bool init_and_grab_all() {
+        if (!init()) {
+            return false;
+        }
+        devices.clear();
 
         DIR* dir = opendir("/dev/input");
         if (!dir) {
@@ -168,12 +187,47 @@ public:
         }
     }
 
+    void set_external_poll(int fd, std::function<void()> before_wait, std::function<void(bool)> after_wait) {
+        init();
+        if (epoll_fd >= 0 && external_fd >= 0) {
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, external_fd, nullptr);
+        }
+        external_fd = fd;
+        external_before_wait = std::move(before_wait);
+        external_after_wait = std::move(after_wait);
+        if (epoll_fd >= 0 && external_fd >= 0) {
+            struct epoll_event ev;
+            ev.events = EPOLLIN;
+            ev.data.ptr = &external_tag;
+            epoll_ctl(epoll_fd, EPOLL_CTL_ADD, external_fd, &ev);
+        }
+    }
+
     int wait_events(std::vector<input_event>& out_events, int timeout_ms = 50) {
         out_events.clear();
-        if (epoll_fd < 0 || devices.empty()) return -1;
+        if (epoll_fd < 0 || (devices.empty() && external_fd < 0)) return -1;
+
+        if (external_before_wait) {
+            external_before_wait();
+        }
 
         struct epoll_event ep_events[16];
         int nfds = epoll_wait(epoll_fd, ep_events, 16, timeout_ms);
+
+        bool external_ready = false;
+        if (nfds > 0) {
+            for (int i = 0; i < nfds; ++i) {
+                if (ep_events[i].data.ptr == &external_tag) {
+                    external_ready = true;
+                    break;
+                }
+            }
+        }
+
+        if (external_after_wait) {
+            external_after_wait(external_ready);
+        }
+
         if (nfds <= 0) return nfds;
 
         for (int i = 0; i < nfds; ++i) {
@@ -183,6 +237,10 @@ public:
                     ssize_t s = read(wake_fd, &val, sizeof(val));
                     (void)s;
                 }
+                continue;
+            }
+
+            if (ep_events[i].data.ptr == &external_tag) {
                 continue;
             }
 
@@ -204,10 +262,29 @@ public:
 
     int wait_events(std::vector<KeyEvent>& out_events, int timeout_ms = 50) {
         out_events.clear();
-        if (epoll_fd < 0 || devices.empty()) return -1;
+        if (epoll_fd < 0 || (devices.empty() && external_fd < 0)) return -1;
+
+        if (external_before_wait) {
+            external_before_wait();
+        }
 
         struct epoll_event ep_events[16];
         int nfds = epoll_wait(epoll_fd, ep_events, 16, timeout_ms);
+
+        bool external_ready = false;
+        if (nfds > 0) {
+            for (int i = 0; i < nfds; ++i) {
+                if (ep_events[i].data.ptr == &external_tag) {
+                    external_ready = true;
+                    break;
+                }
+            }
+        }
+
+        if (external_after_wait) {
+            external_after_wait(external_ready);
+        }
+
         if (nfds <= 0) return nfds;
 
         for (int i = 0; i < nfds; ++i) {
@@ -217,6 +294,10 @@ public:
                     ssize_t s = read(wake_fd, &val, sizeof(val));
                     (void)s;
                 }
+                continue;
+            }
+
+            if (ep_events[i].data.ptr == &external_tag) {
                 continue;
             }
 

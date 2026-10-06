@@ -27,6 +27,13 @@ public:
     virtual void emit_transaction(const TextTransaction& tx) {
         emit_replacement(tx.backs, tx.utf8, tx.mod);
     }
+
+    // Event loop integration (e.g. Wayland display socket multiplexing)
+    virtual int get_poll_fd() const { return -1; }
+    virtual bool prepare_read() { return false; }
+    virtual void read_events() {}
+    virtual void cancel_read() {}
+    virtual int dispatch_pending() { return 0; }
 };
 
 } // namespace senkey

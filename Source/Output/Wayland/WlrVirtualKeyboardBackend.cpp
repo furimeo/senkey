@@ -15,6 +15,10 @@
 #include <cstdlib>
 #include "charset.h" // UniKeyCore UnicodeTable, TOTAL_VNCHARS
 
+#ifdef HAVE_XKBCOMMON
+#include <xkbcommon/xkbcommon.h>
+#endif
+
 #ifndef MFD_CLOEXEC
 #define MFD_CLOEXEC 0x0001U
 #endif
@@ -214,40 +218,77 @@ std::string WlrVirtualKeyboardBackend::merge_compositor_keymap_with_vietnamese(
     return merged;
 }
 
-void WlrVirtualKeyboardBackend::handle_compositor_keymap(const std::string& keymap_str) {
-    compositor_keymap_str = keymap_str;
-    Logger::info("WlrVirtualKeyboardBackend: Compositor keymap synchronized (" +
-                 std::to_string(keymap_str.size()) + " bytes)");
-
-    // 1. Merge live compositor keymap with SenKey Level 0 Vietnamese glyphs and re-upload to virtual keyboard
-    if (keyboard && !keymap_str.empty()) {
-        std::unordered_map<uint32_t, uint32_t> new_cp_map;
-        std::string merged_xkb = merge_compositor_keymap_with_vietnamese(keymap_str, new_cp_map);
-        if (!merged_xkb.empty()) {
-            int fd = memfd_create("senkey-xkb", MFD_CLOEXEC);
-            if (fd < 0) {
-                char tmp_path[] = "/tmp/senkey-xkb-XXXXXX";
-                fd = mkstemp(tmp_path);
-                if (fd >= 0) unlink(tmp_path);
-            }
-            if (fd >= 0) {
-                size_t keymap_size = merged_xkb.size() + 1;
-                ssize_t written = write(fd, merged_xkb.c_str(), keymap_size);
-                if (written == static_cast<ssize_t>(keymap_size)) {
-                    zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, static_cast<uint32_t>(keymap_size));
-                    wl_display_roundtrip(display);
-                    cp_to_evdev_key = std::move(new_cp_map);
-                    Logger::info("WlrVirtualKeyboardBackend: Uploaded live merged keymap to virtual keyboard successfully");
-                }
-                close(fd);
-            }
-        }
+bool WlrVirtualKeyboardBackend::handle_compositor_keymap(const std::string& keymap_str) {
+    if (keymap_str.empty()) {
+        return false;
     }
 
-    // 2. Notify XkbState to reload its state machine
+    // 1. Synthesize merged keymap with Vietnamese Level 0 glyphs
+    std::unordered_map<uint32_t, uint32_t> new_cp_map;
+    std::string merged_xkb = merge_compositor_keymap_with_vietnamese(keymap_str, new_cp_map);
+    if (merged_xkb.empty()) {
+        Logger::warn("WlrVirtualKeyboardBackend: Failed to merge compositor keymap with Vietnamese glyphs. Rolling back.");
+        return false;
+    }
+
+#ifdef HAVE_XKBCOMMON
+    // 2. Transactional Validation: Ensure merged XKB compiles without syntax errors before uploading
+    struct xkb_context* ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (ctx) {
+        struct xkb_keymap* test_km = xkb_keymap_new_from_string(
+            ctx, merged_xkb.c_str(), XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        if (!test_km) {
+            Logger::error("WlrVirtualKeyboardBackend: Merged keymap failed XKB compilation. Rolling back transaction.");
+            xkb_context_unref(ctx);
+            return false;
+        }
+        xkb_keymap_unref(test_km);
+        xkb_context_unref(ctx);
+    }
+#endif
+
+    // 3. Upload to virtual keyboard if device is active
+    if (keyboard) {
+        int fd = memfd_create("senkey-xkb", MFD_CLOEXEC);
+        if (fd < 0) {
+            char tmp_path[] = "/tmp/senkey-xkb-XXXXXX";
+            fd = mkstemp(tmp_path);
+            if (fd >= 0) unlink(tmp_path);
+        }
+        if (fd < 0) {
+            Logger::error("WlrVirtualKeyboardBackend: Failed to allocate memfd/tmpfile for keymap upload. Rolling back.");
+            return false;
+        }
+
+        size_t keymap_size = merged_xkb.size() + 1;
+        ssize_t written = write(fd, merged_xkb.c_str(), keymap_size);
+        if (written != static_cast<ssize_t>(keymap_size)) {
+            Logger::error("WlrVirtualKeyboardBackend: Failed to write full merged keymap to memfd. Rolling back.");
+            close(fd);
+            return false;
+        }
+
+        zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, static_cast<uint32_t>(keymap_size));
+        if (display) {
+            // Non-blocking flush: send protocol request to compositor without re-entrant roundtrip
+            wl_display_flush(display);
+        }
+        close(fd);
+    }
+
+    // 4. Strict Transactional Commit: Only commit internal mappings after successful validation and upload
+    cp_to_evdev_key = std::move(new_cp_map);
+    compositor_keymap_str = keymap_str;
+    Logger::info("WlrVirtualKeyboardBackend: Compositor keymap synchronized (" +
+                 std::to_string(keymap_str.size()) + " bytes, " +
+                 std::to_string(cp_to_evdev_key.size()) + " symbols)");
+
+    // 5. Notify XkbState to reload its state machine
     if (on_keymap_change_cb) {
         on_keymap_change_cb(keymap_str);
     }
+
+    return true;
 }
 
 void WlrVirtualKeyboardBackend::handle_compositor_modifiers(uint32_t group) {
@@ -479,7 +520,7 @@ bool WlrVirtualKeyboardBackend::setup_static_vietnamese_keymap() {
     }
 
     zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, static_cast<uint32_t>(keymap_size));
-    wl_display_roundtrip(display);
+    wl_display_flush(display);
     close(fd);
 
     Logger::info("WlrVirtualKeyboardBackend: Uploaded static Level 0 keymap (" + 
@@ -572,6 +613,55 @@ void WlrVirtualKeyboardBackend::emit_transaction(const TextTransaction& tx) {
     emit_replacement(tx.backs, tx.utf8, tx.mod);
 }
 
+int WlrVirtualKeyboardBackend::get_poll_fd() const {
+#ifdef HAVE_WAYLAND
+    if (display) {
+        return wl_display_get_fd(display);
+    }
+#endif
+    return -1;
+}
+
+bool WlrVirtualKeyboardBackend::prepare_read() {
+#ifdef HAVE_WAYLAND
+    if (!display) return false;
+    while (wl_display_prepare_read(display) != 0) {
+        wl_display_dispatch_pending(display);
+    }
+    wl_display_flush(display);
+    return true;
+#else
+    return false;
+#endif
+}
+
+void WlrVirtualKeyboardBackend::read_events() {
+#ifdef HAVE_WAYLAND
+    if (display) {
+        if (wl_display_read_events(display) < 0) {
+            Logger::warn("WlrVirtualKeyboardBackend: wl_display_read_events failed");
+        }
+    }
+#endif
+}
+
+void WlrVirtualKeyboardBackend::cancel_read() {
+#ifdef HAVE_WAYLAND
+    if (display) {
+        wl_display_cancel_read(display);
+    }
+#endif
+}
+
+int WlrVirtualKeyboardBackend::dispatch_pending() {
+#ifdef HAVE_WAYLAND
+    if (display) {
+        return wl_display_dispatch_pending(display);
+    }
+#endif
+    return 0;
+}
+
 } // namespace senkey
 
 #else
@@ -598,6 +688,11 @@ std::string WlrVirtualKeyboardBackend::merge_compositor_keymap_with_vietnamese(
     return "";
 }
 
+bool WlrVirtualKeyboardBackend::handle_compositor_keymap(const std::string& keymap_str) {
+    (void)keymap_str;
+    return false;
+}
+
 WlrVirtualKeyboardBackend::WlrVirtualKeyboardBackend() = default;
 WlrVirtualKeyboardBackend::~WlrVirtualKeyboardBackend() = default;
 bool WlrVirtualKeyboardBackend::open_device(const char* device_name) { (void)device_name; return false; }
@@ -606,6 +701,11 @@ bool WlrVirtualKeyboardBackend::is_valid() const { return false; }
 void WlrVirtualKeyboardBackend::emit_passthrough(const struct input_event& ev) { (void)ev; }
 void WlrVirtualKeyboardBackend::emit_replacement(int backs, const std::string& replacement, const ModifierState& mod) { (void)backs; (void)replacement; (void)mod; }
 void WlrVirtualKeyboardBackend::emit_transaction(const TextTransaction& tx) { (void)tx; }
+int WlrVirtualKeyboardBackend::get_poll_fd() const { return -1; }
+bool WlrVirtualKeyboardBackend::prepare_read() { return false; }
+void WlrVirtualKeyboardBackend::read_events() {}
+void WlrVirtualKeyboardBackend::cancel_read() {}
+int WlrVirtualKeyboardBackend::dispatch_pending() { return 0; }
 
 } // namespace senkey
 

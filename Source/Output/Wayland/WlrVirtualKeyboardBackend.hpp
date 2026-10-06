@@ -54,10 +54,10 @@ public:
         const std::string& base_xkb,
         std::unordered_map<uint32_t, uint32_t>& out_cp_to_evdev_key);
 
+    bool handle_compositor_keymap(const std::string& keymap_str);
 #ifdef HAVE_WAYLAND
     void handle_registry_global(struct wl_registry* reg, uint32_t name, const char* interface, uint32_t version);
     void handle_seat_capabilities(struct wl_seat* seat, uint32_t capabilities);
-    void handle_compositor_keymap(const std::string& keymap_str);
     void handle_compositor_modifiers(uint32_t group);
 #endif
 
@@ -84,6 +84,30 @@ public:
         return 0;
 #endif
     }
+
+    const std::unordered_map<uint32_t, uint32_t>& get_codepoint_map() const {
+#ifdef HAVE_WAYLAND
+        return cp_to_evdev_key;
+#else
+        static const std::unordered_map<uint32_t, uint32_t> empty_map;
+        return empty_map;
+#endif
+    }
+
+    const std::string& get_compositor_keymap() const {
+#ifdef HAVE_WAYLAND
+        return compositor_keymap_str;
+#else
+        static const std::string empty_str;
+        return empty_str;
+#endif
+    }
+
+    int get_poll_fd() const override;
+    bool prepare_read() override;
+    void read_events() override;
+    void cancel_read() override;
+    int dispatch_pending() override;
 
     bool open_device(const char* device_name = "senkey-keyboard") override;
     void close_device() override;

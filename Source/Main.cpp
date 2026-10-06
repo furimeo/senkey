@@ -213,6 +213,34 @@ int main(int argc, char* argv[]) {
 
     KeyboardGrabber grabber;
     g_grabber_ptr = &grabber;
+
+    bool wayland_read_prepared = false;
+    int wayland_poll_fd = emitter ? emitter->get_poll_fd() : -1;
+    if (wayland_poll_fd >= 0) {
+        grabber.set_external_poll(
+            wayland_poll_fd,
+            [&emitter, &wayland_read_prepared]() {
+                if (emitter) {
+                    wayland_read_prepared = emitter->prepare_read();
+                }
+            },
+            [&emitter, &wayland_read_prepared](bool ready) {
+                if (emitter && wayland_read_prepared) {
+                    if (ready) {
+                        emitter->read_events();
+                    } else {
+                        emitter->cancel_read();
+                    }
+                    wayland_read_prepared = false;
+                }
+                if (emitter) {
+                    emitter->dispatch_pending();
+                }
+            }
+        );
+        Logger::info("Wayland display FD (" + std::to_string(wayland_poll_fd) + ") multiplexed into input event loop.");
+    }
+
     if (!grabber.init_and_grab_all()) {
         Logger::warn("No physical keyboards detected yet in /dev/input. SenKey is active and waiting for devices...");
     }
@@ -357,6 +385,9 @@ int main(int argc, char* argv[]) {
             }
 
             if (grabber.grabbed_count() == 0) {
+                if (emitter) {
+                    emitter->dispatch_pending();
+                }
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
                 static int retry_ticks = 0;
                 if (++retry_ticks >= 8) {
